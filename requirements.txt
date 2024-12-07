@@ -1,2 +1,2 @@
 aiohttp
-discord.pyu
+discord.py
