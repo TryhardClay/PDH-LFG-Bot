@@ -17,9 +17,12 @@ try:
 except FileNotFoundError:
     pass  # Ignore if the file doesn't exist
 
+# Define intents with privileged intents enabled
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
+intents.members = True  # Enable members intent
+
 client = discord.Client(intents=intents)
 
 async def send_webhook_message(webhook_url, content, username=None, avatar_url=None):
@@ -55,7 +58,7 @@ async def on_guild_join(guild):
 
     # Save webhook URLs to storage
     with open('webhooks.json', 'w') as f:
-        json.dump(WEBHOOK_URLS, f)
+        json.dump(WEBHOOK_URLS, f, indent=4)  # Added indent for better readability
 
     print(f"Joined server: {guild.name}, created webhook in {channel.name}")
 
