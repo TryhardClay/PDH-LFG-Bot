@@ -8,14 +8,17 @@ import os
 # Access the token from the environment variable
 TOKEN = os.environ.get('TOKEN')
 
-WEBHOOK_URLS = {}  # Start with an empty dictionary
+WEBHOOK_URLS = {}  # Initialize as an empty dictionary
 
-# Load webhook URLs from storage (if available)
+# Load webhook URLs from storage, handling potential errors
 try:
     with open('webhooks.json', 'r') as f:
         WEBHOOK_URLS = json.load(f)
 except FileNotFoundError:
-    pass  # Ignore if the file doesn't exist
+    WEBHOOK_URLS = {}  # Initialize as an empty dictionary if the file doesn't exist
+except json.decoder.JSONDecodeError as e:
+    print(f"Error decoding JSON from webhooks.json: {e}")
+    WEBHOOK_URLS = {}  # Initialize as an empty dictionary if there's a JSON error
 
 # Define intents (only the necessary ones)
 intents = discord.Intents.default()
