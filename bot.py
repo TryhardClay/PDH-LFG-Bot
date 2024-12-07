@@ -49,17 +49,20 @@ async def on_ready():
 @client.event
 async def on_guild_join(guild):
     # Create a webhook in a specific channel (e.g., the first text channel)
-    channel = guild.text_channels[0]  # You might want to refine this logic
-    webhook = await channel.create_webhook(name="Cross-Server Bot Webhook")
-
-    # Store the webhook URL
-    WEBHOOK_URLS[f'{guild.id}_{channel.id}'] = webhook.url
-
-    # Save webhook URLs to storage
-    with open('webhooks.json', 'w') as f:
-        json.dump(WEBHOOK_URLS, f, indent=4)  # Added indent for better readability
-
-    print(f"Joined server: {guild.name}, created webhook in {channel.name}")
+    # Ensure the bot has the "Manage Webhooks" permission
+    for channel in guild.text_channels:
+        try:
+            webhook = await channel.create_webhook(name="Cross-Server Bot Webhook")
+            # Store the webhook URL
+            WEBHOOK_URLS[f'{guild.id}_{channel.id}'] = webhook.url
+            # Save webhook URLs to storage
+            with open('webhooks.json', 'w') as f:
+                json.dump(WEBHOOK_URLS, f, indent=4)
+            print(f"Joined server: {guild.name}, created webhook in {channel.name}")
+            break  # Stop after creating one webhook
+        except discord.Forbidden:
+            print(f"Missing permissions to create webhook in {channel.name}")
+            continue
 
 @client.event
 async def on_message(message):
