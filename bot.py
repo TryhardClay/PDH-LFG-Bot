@@ -3,8 +3,11 @@ import re
 import aiohttp
 import asyncio
 import json
+import os
 
-TOKEN = 'YOUR_BOT_TOKEN'
+# Access the token from the environment variable
+TOKEN = os.environ.get('TOKEN')
+
 WEBHOOK_URLS = {}  # Start with an empty dictionary
 
 # Load webhook URLs from storage (if available)
@@ -16,10 +19,26 @@ except FileNotFoundError:
 
 intents = discord.Intents.default()
 intents.message_content = True
-intents.guilds = True  # Enable guilds intent
+intents.guilds = True
 client = discord.Client(intents=intents)
 
-# ... (send_webhook_message function remains the same)
+async def send_webhook_message(webhook_url, content, username=None, avatar_url=None):
+    async with aiohttp.ClientSession() as session:
+        data = {
+            'content': content
+        }
+        if username:
+            data['username'] = username
+        if avatar_url:
+            data['avatar_url'] = avatar_url
+        async with session.post(webhook_url, json=data) as response:
+            if response.status == 204:
+                print("Message sent successfully.")
+            elif response.status == 429:
+                print("Rate limited! Implement backoff strategy here.")
+                # TODO: Implement exponential backoff
+            else:
+                print(f"Failed to send message. Status code: {response.status}")
 
 @client.event
 async def on_ready():
@@ -40,6 +59,25 @@ async def on_guild_join(guild):
 
     print(f"Joined server: {guild.name}, created webhook in {channel.name}")
 
-# ... (on_message event remains the same)
+@client.event
+async def on_message(message):
+    if message.author == client.user:
+        return  # Ignore messages from the bot itself
+
+    # Extract content (including links and attachments)
+    content = message.content
+    if message.attachments:
+        content += "\n" + "\n".join([attachment.url for attachment in message.attachments])
+
+    # Determine source and destination
+    source_channel = f'{message.guild.id}_{message.channel.id}'
+    for destination_channel, webhook_url in WEBHOOK_URLS.items():
+        if source_channel != destination_channel:  # Don't send to the same channel
+            await send_webhook_message(
+                webhook_url,
+                content,
+                username=f"{message.author.name} from {message.guild.name}",
+                avatar_url=message.author.avatar.url if message.author.avatar else None
+            )
 
 client.run(TOKEN)
