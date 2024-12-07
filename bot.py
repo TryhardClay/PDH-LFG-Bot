@@ -17,11 +17,10 @@ try:
 except FileNotFoundError:
     pass  # Ignore if the file doesn't exist
 
-# Define intents with privileged intents enabled
+# Define intents (only the necessary ones)
 intents = discord.Intents.default()
 intents.message_content = True
-intents.guilds = True
-intents.members = True  # Enable members intent
+intents.guilds = True  # Required for on_guild_join
 
 client = discord.Client(intents=intents)
 
