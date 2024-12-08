@@ -4,22 +4,24 @@ import aiohttp
 import asyncio
 import json
 import os
-from discord import app_commands  # Import for slash commands
+from discord import app_commands
 
 # Access the token from the environment variable
 TOKEN = os.environ.get('TOKEN')
 
 WEBHOOK_URLS = {}  # Initialize as an empty dictionary
 
-# Load webhook URLs from storage, handling potential errors
+# Ensure webhooks.json exists and is valid JSON
 try:
     with open('webhooks.json', 'r') as f:
         WEBHOOK_URLS = json.load(f)
 except FileNotFoundError:
-    WEBHOOK_URLS = {}  # Initialize as an empty dictionary if the file doesn't exist
+    with open('webhooks.json', 'w') as f:
+        json.dump({}, f)  # Create an empty JSON object if the file doesn't exist
 except json.decoder.JSONDecodeError as e:
     print(f"Error decoding JSON from webhooks.json: {e}")
-    WEBHOOK_URLS = {}  # Initialize as an empty dictionary if there's a JSON error
+    with open('webhooks.json', 'w') as f:
+        json.dump({}, f)  # Overwrite with an empty JSON object if there's an error
 
 # Define intents (only the necessary ones)
 intents = discord.Intents.default()
@@ -54,7 +56,7 @@ async def on_ready():
 
 @client.event
 async def on_guild_join(guild):
-    # (Optional) You might want to remove this or modify it 
+    # (Optional) You might want to remove this or modify it
     # to provide a welcome message or instructions on using the /setchannel command.
     for channel in guild.text_channels:
         try:
