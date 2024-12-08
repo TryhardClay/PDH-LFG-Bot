@@ -134,6 +134,10 @@ async def on_message(message):
     if message.author == client.user:
         return  # Ignore messages from the bot itself
 
+    # Check if the message is from a webhook
+    if message.webhook_id:
+        return  # Ignore webhook messages
+
     content = message.content
     embeds = [embed.to_dict() for embed in message.embeds]
     if message.attachments:
