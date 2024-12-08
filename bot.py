@@ -146,7 +146,7 @@ async def listconnections(interaction: discord.Interaction):
 
 @client.tree.command(name="setfilter", description="Set the filter for a channel.")
 @has_permissions(manage_channels=True)
-@app_commands.describe(channel="The channel to set the filter for.", filter="The filter to apply ('casual' or 'cpdh').")
+# Remove app_commands.describe (not needed with commands.Bot)
 async def setfilter(interaction: discord.Interaction, channel: discord.TextChannel, filter: str):
     try:
         # Convert filter to lowercase for consistency
