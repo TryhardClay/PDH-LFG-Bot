@@ -70,7 +70,7 @@ async def on_guild_join(guild):
             continue  # Try the next channel if sending fails
 
 @client.tree.command(name="setchannel", description="Set the channel for cross-server communication.")
-@commands.describe(channel="The channel to use for cross-server communication.")  # Use commands.describe
+# Remove the describe decorator (it's not needed for slash commands)
 @has_permissions(manage_channels=True)  # Require "Manage Channels" permission
 async def setchannel(interaction: discord.Interaction, channel: discord.TextChannel):
     try:
