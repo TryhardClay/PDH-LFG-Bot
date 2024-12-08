@@ -181,13 +181,14 @@ async def on_message(message):
     if message.webhook_id and message.author.id != client.user.id:
         return
 
-    # Check if the message is a SpellBot prompt
-    if message.author.id == 725510263251402832 and message.content.startswith("/lfg"):  # Use SpellBot's user ID
-        logging.info("SpellBot prompt detected:")
-        logging.info(f"  Content: {message.content}")
+    # Check if the message is a SpellBot prompt and contains an embed
+    if message.author.id == 725510263251402832 and message.embeds:
+        logging.info("SpellBot prompt with embed detected:")
+        logging.info(f"  Embed content: {message.embeds[0].description}")  # Log the embed description
 
-        # Extract the SpellTable link
-        spelltable_link = re.search(r"(https?://[^\s]+)", message.content)
+        # Extract the SpellTable link from the embed description
+        embed_description = message.embeds[0].description
+        spelltable_link = re.search(r"(https?://[^\s]+)", embed_description)
         if spelltable_link:
             spelltable_link = spelltable_link.group(1)
             logging.info(f"  Extracted SpellTable link: {spelltable_link}")
@@ -209,7 +210,7 @@ async def on_message(message):
                                 avatar_url=message.author.avatar.url if message.author.avatar else None
                             )
         else:
-            logging.warning("  Failed to extract SpellTable link.")
+            logging.warning("  Failed to extract SpellTable link from embed.")
 
     content = message.content
     embeds = [embed.to_dict() for embed in message.embeds]
