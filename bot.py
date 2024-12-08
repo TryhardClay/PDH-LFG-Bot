@@ -4,7 +4,9 @@ import aiohttp
 import asyncio
 import json
 import os
-from discord import app_commands
+from discord.ext import commands
+from discord.ext.commands import has_permissions
+
 
 # Access the token from the environment variable
 TOKEN = os.environ.get('TOKEN')
@@ -28,7 +30,8 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True  # Required for on_guild_join
 
-client = discord.Client(intents=intents)
+# Use commands.Bot instead of Client
+client = commands.Bot(command_prefix='/', intents=intents)  # You can set an appropriate command prefix
 
 async def send_webhook_message(webhook_url, content, username=None, avatar_url=None):
     async with aiohttp.ClientSession() as session:
@@ -69,7 +72,7 @@ async def on_guild_join(guild):
 
 @client.tree.command(name="setchannel", description="Set the channel for cross-server communication.")
 @app_commands.describe(channel="The channel to use for cross-server communication.")
-@app_commands.checks.has_permissions(manage_channels=True)  # Require "Manage Channels" permission
+@has_permissions(manage_channels=True)  # Require "Manage Channels" permission
 async def setchannel(interaction: discord.Interaction, channel: discord.TextChannel):
     try:
         # Create the webhook
