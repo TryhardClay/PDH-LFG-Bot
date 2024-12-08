@@ -30,7 +30,7 @@ intents.message_content = True
 intents.guilds = True  # Required for on_guild_join
 
 # Use commands.Bot instead of Client
-client = commands.Bot(command_prefix='/', intents=intents)  # You can set an appropriate command prefix
+client = commands.Bot(command_prefix='/', intents=intents)
 
 async def send_webhook_message(webhook_url, content, username=None, avatar_url=None):
     async with aiohttp.ClientSession() as session:
@@ -53,57 +53,24 @@ async def send_webhook_message(webhook_url, content, username=None, avatar_url=N
 @client.event
 async def on_ready():
     print(f'Logged in as {client.user}')
-    # Sync slash commands (global sync)
     await client.tree.sync()
+
+    # Manual trigger for send_webhook_message (for testing)
+    if WEBHOOK_URLS:  # Only execute if WEBHOOK_URLS is not empty
+        first_webhook = WEBHOOK_URLS[list(WEBHOOK_URLS.keys())[0]]
+        await send_webhook_message(first_webhook, "Test message from the bot!")
 
 @client.event
 async def on_guild_join(guild):
-    # (Optional) You might want to remove this or modify it
-    # to provide a welcome message or instructions on using the /setchannel command.
-    for channel in guild.text_channels:
-        try:
-            await channel.send("Hello! I'm your cross-server communication bot. "
-                               "An admin needs to use the `/setchannel` command to "
-                               "choose a channel for relaying messages.")
-            break  # Send the message only in the first available channel
-        except discord.Forbidden:
-            continue  # Try the next channel if sending fails
+    # ... (your on_guild_join logic)
 
 @client.tree.command(name="setchannel", description="Set the channel for cross-server communication.")
-# Remove the describe decorator (it's not needed for slash commands)
-@has_permissions(manage_channels=True)  # Require "Manage Channels" permission
+@has_permissions(manage_channels=True)
 async def setchannel(interaction: discord.Interaction, channel: discord.TextChannel):
-    try:
-        # Create the webhook
-        webhook = await channel.create_webhook(name="Cross-Server Bot Webhook")
-        # Store the webhook URL
-        WEBHOOK_URLS[f'{interaction.guild.id}_{channel.id}'] = webhook.url
-        # Save webhook URLs to storage
-        with open('webhooks.json', 'w') as f:
-            json.dump(WEBHOOK_URLS, f, indent=4)
-        await interaction.response.send_message(f"Cross-server communication channel set to {channel.mention}.", ephemeral=True)
-    except discord.Forbidden:
-        await interaction.response.send_message("I don't have permission to create webhooks in that channel.", ephemeral=True)
+    # ... (your setchannel logic)
 
 @client.event
 async def on_message(message):
-    if message.author == client.user:
-        return  # Ignore messages from the bot itself
-
-    # Extract content (including links and attachments)
-    content = message.content
-    if message.attachments:
-        content += "\n" + "\n".join([attachment.url for attachment in message.attachments])
-
-    # Determine source and destination
-    source_channel = f'{message.guild.id}_{channel.id}'
-    for destination_channel, webhook_url in WEBHOOK_URLS.items():
-        if source_channel != destination_channel:  # Don't send to the same channel
-            await send_webhook_message(
-                webhook_url,
-                content,
-                username=f"{message.author.name} from {message.guild.name}",
-                avatar_url=message.author.avatar.url if message.author.avatar else None
-            )
+    # ... (your on_message logic)
 
 client.run(TOKEN)
