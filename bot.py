@@ -15,6 +15,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 TOKEN = os.environ.get('TOKEN')
 
 WEBHOOK_URLS = {}  # Initialize as an empty dictionary
+CHANNEL_FILTERS = {}  # Dictionary to store channel filters
 
 # Ensure webhooks.json exists and is valid JSON
 try:
@@ -32,7 +33,7 @@ except json.decoder.JSONDecodeError as e:
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
-intents.members = True  # For potential future use with member-related events
+intents.members = True
 
 client = commands.Bot(command_prefix='/', intents=intents)
 
@@ -88,13 +89,15 @@ async def on_guild_join(guild):
 
 @client.tree.command(name="setchannel", description="Set the channel for cross-server communication.")
 @has_permissions(manage_channels=True)
-async def setchannel(interaction: discord.Interaction, channel: discord.TextChannel):
+@app_commands.describe(channel="The channel to use for cross-server communication.", filter="Filter messages (e.g., 'casual', 'cpdh', or 'none').")
+async def setchannel(interaction: discord.Interaction, channel: discord.TextChannel, filter: str = "none"):
     try:
         webhook = await channel.create_webhook(name="Cross-Server Bot Webhook")
         WEBHOOK_URLS[f'{interaction.guild.id}_{channel.id}'] = webhook.url
+        CHANNEL_FILTERS[f'{interaction.guild.id}_{channel.id}'] = filter.lower()
         with open('webhooks.json', 'w') as f:
             json.dump(WEBHOOK_URLS, f, indent=4)
-        await interaction.response.send_message(f"Cross-server communication channel set to {channel.mention}.", ephemeral=True)
+        await interaction.response.send_message(f"Cross-server communication channel set to {channel.mention} with filter '{filter}'.", ephemeral=True)
     except discord.Forbidden:
         await interaction.response.send_message("I don't have permission to create webhooks in that channel.", ephemeral=True)
 
@@ -119,7 +122,7 @@ async def disconnect(interaction: discord.Interaction, channel: discord.TextChan
 async def listconnections(interaction: discord.Interaction):
     try:
         if WEBHOOK_URLS:
-            connections = "\n".join([f"- <#{channel.split('_')[1]}> in {client.get_guild(int(channel.split('_')[0])).name}" for channel in WEBHOOK_URLS])
+            connections = "\n".join([f"- <#{channel.split('_')[1]}> in {client.get_guild(int(channel.split('_')[0])).name} (filter: {CHANNEL_FILTERS.get(channel, 'none')})" for channel in WEBHOOK_URLS])
             await interaction.response.send_message(f"Connected channels:\n{connections}", ephemeral=True)
         else:
             await interaction.response.send_message("There are no connected channels.", ephemeral=True)
@@ -140,15 +143,20 @@ async def on_message(message):
     source_channel_id = f'{message.guild.id}_{message.channel.id}'
 
     if source_channel_id in WEBHOOK_URLS:
+        source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
+
         for destination_channel_id, webhook_url in WEBHOOK_URLS.items():
             if source_channel_id != destination_channel_id:
-                await send_webhook_message(
-                    webhook_url,
-                    content=content,
-                    embeds=embeds,
-                    username=f"{message.author.name} from {message.guild.name}",
-                    avatar_url=message.author.avatar.url if message.author.avatar else None
-                )
+                destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
+
+                if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
+                    await send_webhook_message(
+                        webhook_url,
+                        content=content,
+                        embeds=embeds,
+                        username=f"{message.author.name} from {message.guild.name}",
+                        avatar_url=message.author.avatar.url if message.author.avatar else None
+                    )
 
         # Relay reactions (basic implementation)
         for reaction in message.reactions:
@@ -156,5 +164,19 @@ async def on_message(message):
                 await reaction.message.add_reaction(reaction.emoji)
             except discord.HTTPException as e:
                 logging.error(f"Error adding reaction: {e}")
+
+@client.event
+async def on_guild_remove(guild):
+    # Delete the role when the bot leaves the server
+    try:
+        role_name = client.user.name
+        role = discord.utils.get(guild.roles, name=role_name)
+        if role:
+            await role.delete()
+            logging.info(f"Deleted role {role_name} from server {guild.name}")
+    except discord.Forbidden:
+        logging.warning(f"Missing permissions to delete role in server {guild.name}")
+    except discord.HTTPException as e:
+        logging.error(f"Error deleting role in server {guild.name}: {e}")
 
 client.run(TOKEN)
