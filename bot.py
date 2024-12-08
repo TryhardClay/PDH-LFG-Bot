@@ -89,7 +89,6 @@ async def on_guild_join(guild):
 
 @client.tree.command(name="setchannel", description="Set the channel for cross-server communication.")
 @has_permissions(manage_channels=True)
-@app_commands.describe(channel="The channel to use for cross-server communication.", filter="Filter messages (e.g., 'casual', 'cpdh', or 'none').")
 async def setchannel(interaction: discord.Interaction, channel: discord.TextChannel, filter: str = "none"):
     try:
         webhook = await channel.create_webhook(name="Cross-Server Bot Webhook")
