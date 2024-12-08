@@ -175,9 +175,8 @@ async def message_relay_loop():
 @client.event
 async def on_message(message):
     if message.author == client.user:
-        return  # Ignore messages from the bot itself
+        return
 
-    # Only ignore webhook messages that are NOT from the bot itself
     if message.webhook_id and message.author.id != client.user.id:
         return
 
@@ -205,11 +204,47 @@ async def on_message(message):
                                 avatar_url=message.author.avatar.url if message.author.avatar else None
                             )
 
-    # ... (rest of your message relaying logic remains the same)
+    content = message.content
+    embeds = [embed.to_dict() for embed in message.embeds]
+    if message.attachments:
+        content += "\n" + "\n".join([attachment.url for attachment in message.attachments])
+
+    source_channel_id = f'{message.guild.id}_{message.channel.id}'
+
+    if source_channel_id in WEBHOOK_URLS:
+        source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
+
+        for destination_channel_id, webhook_url in WEBHOOK_URLS.items():
+            if source_channel_id != destination_channel_id:
+                destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
+
+                if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
+                    await send_webhook_message(
+                        webhook_url,
+                        content=content,
+                        embeds=embeds,
+                        username=f"{message.author.name} from {message.guild.name}",
+                        avatar_url=message.author.avatar.url if message.author.avatar else None
+                    )
+
+        for reaction in message.reactions:
+            try:
+                await reaction.message.add_reaction(reaction.emoji)
+            except discord.HTTPException as e:
+                logging.error(f"Error adding reaction: {e}")
 
 @client.event
 async def on_guild_remove(guild):
-    # ... (your on_guild_remove logic remains the same)
+    try:
+        role_name = client.user.name
+        role = discord.utils.get(guild.roles, name=role_name)
+        if role:
+            await role.delete()
+            logging.info(f"Deleted role {role_name} from server {guild.name}")
+    except discord.Forbidden:
+        logging.warning(f"Missing permissions to delete role in server {guild.name}")
+    except discord.HTTPException as e:
+        logging.error(f"Error deleting role in server {guild.name}: {e}")
 
 @client.tree.command(name="about", description="Show information about the bot and its commands.")
 async def about(interaction: discord.Interaction):
