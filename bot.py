@@ -144,6 +144,34 @@ async def listconnections(interaction: discord.Interaction):
         logging.error(f"Error listing connections: {e}")
         await interaction.response.send_message("An error occurred while listing connections.", ephemeral=True)
 
+@client.tree.command(name="setfilter", description="Set the filter for a channel.")
+@has_permissions(manage_channels=True)
+@app_commands.describe(channel="The channel to set the filter for.", filter="The filter to apply ('casual' or 'cpdh').")
+async def setfilter(interaction: discord.Interaction, channel: discord.TextChannel, filter: str):
+    try:
+        # Convert filter to lowercase for consistency
+        filter = filter.lower()
+
+        # Check if the filter is valid
+        if filter not in ("casual", "cpdh"):
+            await interaction.response.send_message("Invalid filter. Please specify either 'casual' or 'cpdh'.", ephemeral=True)
+            return
+
+        channel_id = f'{interaction.guild.id}_{channel.id}'
+
+        # Check if the channel is connected
+        if channel_id not in WEBHOOK_URLS:
+            await interaction.response.send_message("This channel is not connected for cross-server communication.", ephemeral=True)
+            return
+
+        # Set the filter for the channel
+        CHANNEL_FILTERS[channel_id] = filter
+        await interaction.response.send_message(f"Filter for {channel.mention} set to '{filter}'.", ephemeral=True)
+
+    except Exception as e:
+        logging.error(f"Error setting filter: {e}")
+        await interaction.response.send_message("An error occurred while setting the filter.", ephemeral=True)
+
 @client.tree.command(name="reload", description="Reload the bot's configuration (for debugging/development).")
 @has_permissions(administrator=True)  # Restrict to administrators
 async def reload(interaction: discord.Interaction):
