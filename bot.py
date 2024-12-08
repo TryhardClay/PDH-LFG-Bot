@@ -69,7 +69,7 @@ async def on_guild_join(guild):
 
 @client.tree.command(name="setchannel", description="Set the channel for cross-server communication.")
 @app_commands.describe(channel="The channel to use for cross-server communication.")
-@app_commands.checks.has_permissions(administrator=True)  # Restrict to admins
+@app_commands.checks.has_permissions(manage_channels=True)  # Require "Manage Channels" permission
 async def setchannel(interaction: discord.Interaction, channel: discord.TextChannel):
     try:
         # Create the webhook
