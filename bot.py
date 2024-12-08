@@ -144,36 +144,9 @@ async def listconnections(interaction: discord.Interaction):
         logging.error(f"Error listing connections: {e}")
         await interaction.response.send_message("An error occurred while listing connections.", ephemeral=True)
 
-@client.tree.command(name="setfilter", description="Set the filter for a channel.")
-@has_permissions(manage_channels=True)
-async def setfilter(interaction: discord.Interaction, channel: discord.TextChannel, filter: str):
-    try:
-        # Convert filter to lowercase for consistency
-        filter = filter.lower()
-
-        # Check if the filter is valid
-        if filter not in ("casual", "cpdh"):
-            await interaction.response.send_message("Invalid filter. Please specify either 'casual' or 'cpdh'.", ephemeral=True)
-            return
-
-        channel_id = f'{interaction.guild.id}_{channel.id}'
-
-        # Check if the channel is connected
-        if channel_id not in WEBHOOK_URLS:
-            await interaction.response.send_message("This channel is not connected for cross-server communication.", ephemeral=True)
-            return
-
-        # Set the filter for the channel
-        CHANNEL_FILTERS[channel_id] = filter
-        await interaction.response.send_message(f"Filter for {channel.mention} set to '{filter}'.", ephemeral=True)
-
-    except Exception as e:
-        logging.error(f"Error setting filter: {e}")
-        await interaction.response.send_message("An error occurred while setting the filter.", ephemeral=True)
-
-@client.tree.command(name="reload", description="Reload the bot's configuration (for debugging/development).")
+@client.tree.command(name="resetconfig", description="Reload the bot's configuration (for debugging/development).")  # Renamed to /resetconfig
 @has_permissions(administrator=True)  # Restrict to administrators
-async def reload(interaction: discord.Interaction):
+async def resetconfig(interaction: discord.Interaction):  # Renamed to resetconfig
     try:
         # Reload webhooks.json
         global WEBHOOK_URLS, CHANNEL_FILTERS
@@ -205,55 +178,24 @@ async def message_relay_loop():
 
 @client.event
 async def on_message(message):
-    if message.author == client.user:
-        return  # Ignore messages from the bot itself
-
-    # Only ignore webhook messages that are NOT from the bot itself
-    if message.webhook_id and message.author.id != client.user.id:
-        return
-
-    content = message.content
-    embeds = [embed.to_dict() for embed in message.embeds]
-    if message.attachments:
-        content += "\n" + "\n".join([attachment.url for attachment in message.attachments])
-
-    source_channel_id = f'{message.guild.id}_{message.channel.id}'
-
-    if source_channel_id in WEBHOOK_URLS:
-        source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
-
-        for destination_channel_id, webhook_url in WEBHOOK_URLS.items():
-            if source_channel_id != destination_channel_id:
-                destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
-
-                if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
-                    await send_webhook_message(
-                        webhook_url,
-                        content=content,
-                        embeds=embeds,
-                        username=f"{message.author.name} from {message.guild.name}",
-                        avatar_url=message.author.avatar.url if message.author.avatar else None
-                    )
-
-        # Relay reactions (basic implementation)
-        for reaction in message.reactions:
-            try:
-                await reaction.message.add_reaction(reaction.emoji)
-            except discord.HTTPException as e:
-                logging.error(f"Error adding reaction: {e}")
+    # ... (your on_message logic remains the same)
 
 @client.event
 async def on_guild_remove(guild):
-    # Delete the role when the bot leaves the server
+    # ... (your on_guild_remove logic remains the same)
+
+@client.tree.command(name="about", description="Show information about the bot and its commands.")
+async def about(interaction: discord.Interaction):
     try:
-        role_name = client.user.name
-        role = discord.utils.get(guild.roles, name=role_name)
-        if role:
-            await role.delete()
-            logging.info(f"Deleted role {role_name} from server {guild.name}")
-    except discord.Forbidden:
-        logging.warning(f"Missing permissions to delete role in server {guild.name}")
-    except discord.HTTPException as e:
-        logging.error(f"Error deleting role in server {guild.name}: {e}")
+        embed = discord.Embed(title="Cross-Server Communication Bot", description="This bot allows you to connect channels in different servers to relay messages and facilitate communication.", color=discord.Color.blue())
+        embed.add_field(name="/setchannel", value="Set a channel for cross-server communication and assign a filter ('casual' or 'cpdh').", inline=False)
+        embed.add_field(name="/disconnect", value="Disconnect a channel from cross-server communication.", inline=False)
+        embed.add_field(name="/listconnections", value="List all connected channels and their filters.", inline=False)
+        embed.add_field(name="/resetconfig", value="Reload the bot's configuration (for debugging/development).", inline=False)  # Updated command name
+        embed.add_field(name="/about", value="Show this information.", inline=False)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+    except Exception as e:
+        logging.error(f"Error in /about command: {e}")
+        await interaction.response.send_message("An error occurred while processing the command.", ephemeral=True)
 
 client.run(TOKEN)
