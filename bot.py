@@ -96,11 +96,19 @@ async def on_guild_join(guild):
 
 @client.tree.command(name="setchannel", description="Set the channel for cross-server communication.")
 @has_permissions(manage_channels=True)
-async def setchannel(interaction: discord.Interaction, channel: discord.TextChannel, filter: str = "none"):
+async def setchannel(interaction: discord.Interaction, channel: discord.TextChannel, filter: str):
     try:
+        # Convert filter to lowercase for consistency
+        filter = filter.lower()
+
+        # Check if the filter is valid
+        if filter not in ("casual", "cpdh"):
+            await interaction.response.send_message("Invalid filter. Please specify either 'casual' or 'cpdh'.", ephemeral=True)
+            return
+
         webhook = await channel.create_webhook(name="Cross-Server Bot Webhook")
         WEBHOOK_URLS[f'{interaction.guild.id}_{channel.id}'] = webhook.url
-        CHANNEL_FILTERS[f'{interaction.guild.id}_{channel.id}'] = filter.lower()
+        CHANNEL_FILTERS[f'{interaction.guild.id}_{channel.id}'] = filter
         with open('webhooks.json', 'w') as f:
             json.dump(WEBHOOK_URLS, f, indent=4)
         await interaction.response.send_message(f"Cross-server communication channel set to {channel.mention} with filter '{filter}'.", ephemeral=True)
