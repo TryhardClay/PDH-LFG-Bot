@@ -182,15 +182,15 @@ async def on_message(message):
         return
 
     # Check if the message is a SpellBot prompt
-    if message.content.startswith("/lfg"):
-        logging.info("Potential SpellBot prompt detected:")  # Log the potential prompt
-        logging.info(f"  Content: {message.content}")  # Log the content of the message
+    if message.author.id == 725510263251402832 and message.content.startswith("/lfg"):  # Use SpellBot's user ID
+        logging.info("SpellBot prompt detected:")
+        logging.info(f"  Content: {message.content}")
 
         # Extract the SpellTable link
         spelltable_link = re.search(r"(https?://[^\s]+)", message.content)
         if spelltable_link:
             spelltable_link = spelltable_link.group(1)
-            logging.info(f"  Extracted SpellTable link: {spelltable_link}")  # Log the extracted link
+            logging.info(f"  Extracted SpellTable link: {spelltable_link}")
 
             # Redistribute the prompt
             source_channel_id = f'{message.guild.id}_{message.channel.id}'
@@ -209,8 +209,7 @@ async def on_message(message):
                                 avatar_url=message.author.avatar.url if message.author.avatar else None
                             )
         else:
-            logging.warning("  Failed to extract SpellTable link.")  # Log if link extraction fails
-
+            logging.warning("  Failed to extract SpellTable link.")
 
     content = message.content
     embeds = [embed.to_dict() for embed in message.embeds]
