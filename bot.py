@@ -7,7 +7,6 @@ import os
 from discord.ext import commands
 from discord.ext.commands import has_permissions
 
-
 # Access the token from the environment variable
 TOKEN = os.environ.get('TOKEN')
 
@@ -71,7 +70,7 @@ async def on_guild_join(guild):
             continue  # Try the next channel if sending fails
 
 @client.tree.command(name="setchannel", description="Set the channel for cross-server communication.")
-@app_commands.describe(channel="The channel to use for cross-server communication.")
+@commands.describe(channel="The channel to use for cross-server communication.")  # Use commands.describe
 @has_permissions(manage_channels=True)  # Require "Manage Channels" permission
 async def setchannel(interaction: discord.Interaction, channel: discord.TextChannel):
     try:
@@ -97,7 +96,7 @@ async def on_message(message):
         content += "\n" + "\n".join([attachment.url for attachment in message.attachments])
 
     # Determine source and destination
-    source_channel = f'{message.guild.id}_{message.channel.id}'
+    source_channel = f'{message.guild.id}_{channel.id}'
     for destination_channel, webhook_url in WEBHOOK_URLS.items():
         if source_channel != destination_channel:  # Don't send to the same channel
             await send_webhook_message(
