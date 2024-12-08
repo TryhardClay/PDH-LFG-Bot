@@ -146,7 +146,6 @@ async def listconnections(interaction: discord.Interaction):
 
 @client.tree.command(name="setfilter", description="Set the filter for a channel.")
 @has_permissions(manage_channels=True)
-# Remove app_commands.describe (not needed with commands.Bot)
 async def setfilter(interaction: discord.Interaction, channel: discord.TextChannel, filter: str):
     try:
         # Convert filter to lowercase for consistency
@@ -183,10 +182,17 @@ async def reload(interaction: discord.Interaction):
 
         # (Optional) You might want to reload other configurations here
 
-        await interaction.response.send_message("Bot configuration reloaded.", ephemeral=True)
+        if interaction.response.is_done():
+            await interaction.followup.send("Bot configuration reloaded.", ephemeral=True)
+        else:
+            await interaction.response.send_message("Bot configuration reloaded.", ephemeral=True)
+
     except Exception as e:
         logging.error(f"Error reloading configuration: {e}")
-        await interaction.response.send_message("An error occurred while reloading the configuration.", ephemeral=True)
+        if interaction.response.is_done():
+            await interaction.followup.send("An error occurred while reloading the configuration.", ephemeral=True)
+        else:
+            await interaction.response.send_message("An error occurred while reloading the configuration.", ephemeral=True)
 
 async def message_relay_loop():
     while True:
