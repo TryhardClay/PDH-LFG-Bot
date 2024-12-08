@@ -42,8 +42,9 @@ This Discord bot facilitates communication and coordination between different se
 ## Disclaimer
 
 This bot is still under development and might have limitations or bugs. Please use it responsibly and report any issues you encounter.
+
 ---------------------------
-#Additional functionality
+###Additional Future Functionality
 
 ## LFG Bot
 
