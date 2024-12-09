@@ -1,3 +1,4 @@
+# utils.py
 import asyncio
 import logging
 
@@ -5,13 +6,14 @@ import aiohttp
 
 logger = logging.getLogger(__name__)
 
+
 async def fetch_webpage(url, retry_attempts=5):
     """Fetches the content of a webpage with retry attempts."""
 
     async with aiohttp.ClientSession() as session:
         for attempt in range(retry_attempts):
             try:
-                async with session.get(url) as response:
+                async with session.get(url, headers={'User-Agent': 'Mozilla/5.0'}) as response:  # Added User-Agent
                     response.raise_for_status()  # Raise an exception for bad status codes
                     return await response.text()
             except aiohttp.ClientError as e:
@@ -26,6 +28,7 @@ async def fetch_webpage(url, retry_attempts=5):
                     await asyncio.sleep(2 ** attempt)  # Exponential backoff
                 else:
                     raise  # Re-raise the exception after all attempts fail
+
 
 async def parse_html(html_content):
     """Parses HTML content using BeautifulSoup (example)."""
