@@ -15,7 +15,7 @@ class LFG(commands.Cog):
     def cog_unload(self):
         self.check_for_games.cancel()
 
-    @commands.slash_command(name="xserverlfg", description="Add yourself to the Looking-For-Group queue")
+    @commands.slash_command(name="xserverlfg", description="Add yourself to the Looking-For-Group queue")  # Corrected decorator
     async def xserverlfg(self, ctx: discord.ApplicationContext):
         user = ctx.author
         if user.id not in self.lfg_list:
