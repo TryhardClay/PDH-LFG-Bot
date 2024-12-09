@@ -1,5 +1,4 @@
 import discord
-import re
 import aiohttp
 import asyncio
 import json
@@ -82,16 +81,19 @@ async def on_ready():
 
 @client.event
 async def on_guild_join(guild):
-    try:
-        bot_role = await guild.create_role(name=client.user.name, mentionable=True)
-        logging.info(f"Created role {bot_role.name} in server {guild.name}")
+    # Check if the bot already has a role in the server
+    bot_role = discord.utils.get(guild.roles, name=client.user.name)
+    if not bot_role:  # Only create a role if it doesn't exist
         try:
-            await guild.me.add_roles(bot_role)
-            logging.info(f"Added role {bot_role.name} to the bot in server {guild.name}")
+            bot_role = await guild.create_role(name=client.user.name, mentionable=True)
+            logging.info(f"Created role {bot_role.name} in server {guild.name}")
+            try:
+                await guild.me.add_roles(bot_role)
+                logging.info(f"Added role {bot_role.name} to the bot in server {guild.name}")
+            except discord.Forbidden:
+                logging.warning(f"Missing permissions to add role to the bot in server {guild.name}")
         except discord.Forbidden:
-            logging.warning(f"Missing permissions to add role to the bot in server {guild.name}")
-    except discord.Forbidden:
-        logging.warning(f"Missing permissions to create role in server {guild.name}")
+            logging.warning(f"Missing permissions to create role in server {guild.name}")
 
     for channel in guild.text_channels:
         try:
@@ -281,6 +283,8 @@ async def about(interaction: discord.Interaction):
         embed.add_field(name="/listconnections", value="List all connected channels and their filters.", inline=False)
         embed.add_field(name="/resetconfig",
                         value="Reload the bot's configuration (for debugging/development).", inline=False)
+        embed.add_field(name="/reloadconfig",
+                        value="Reload the bot's configuration.", inline=False)
         embed.add_field(name="/about", value="Show this information.", inline=False)
         await interaction.response.send_message(embed=embed, ephemeral=True)
     except Exception as e:
