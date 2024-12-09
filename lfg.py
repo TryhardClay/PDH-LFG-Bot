@@ -12,14 +12,14 @@ class LFG(commands.Cog):
     def cog_unload(self):
         self.check_for_games.cancel()
 
-    @discord.slash_command(name="xserverlfg", description="Add yourself to the Looking-For-Group queue")  # Corrected decorator
-    async def xserverlfg(self, ctx: discord.ApplicationContext):  # Corrected context
-        user = ctx.author  # Access user from context
+    @commands.slash_command(name="xserverlfg", description="Add yourself to the Looking-For-Group queue")
+    async def xserverlfg(self, ctx: discord.ApplicationContext):
+        user = ctx.author
         if user.id not in self.lfg_list:
             self.lfg_list.append(user.id)
-            await ctx.respond(f"{user.mention} has been added to the LFG queue.", ephemeral=True)  # Use ctx.respond()
+            await ctx.respond(f"{user.mention} has been added to the LFG queue.", ephemeral=True)
         else:
-            await ctx.respond(f"{user.mention} is already in the LFG queue.", ephemeral=True)  # Use ctx.respond()
+            await ctx.respond(f"{user.mention} is already in the LFG queue.", ephemeral=True)
 
     @tasks.loop(seconds=60)  # Check every minute
     async def check_for_games(self):
@@ -57,7 +57,7 @@ class LFG(commands.Cog):
 
         try:
             response = requests.post(url, headers=headers, json=data)
-            response.raise_for_status()  # Raise an exception for bad status codes
+            response.raise_for_status()
             # Assuming the API returns the game link in the response
             return response.json().get("gameLink")
         except requests.exceptions.RequestException as e:
