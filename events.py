@@ -1,9 +1,11 @@
 # events.py
+import asyncio
+import json
 import discord
-import asyncio  # Import asyncio for task creation
+import logging
 
-from bot import client, logging, WEBHOOK_URLS, CHANNEL_FILTERS  # Import necessary variables and client
-import biglfg  # Import the biglfg module
+from bot import client, WEBHOOK_URLS, CHANNEL_FILTERS
+import biglfg
 
 
 @client.event
