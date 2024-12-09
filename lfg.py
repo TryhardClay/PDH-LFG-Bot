@@ -1,7 +1,10 @@
+# lfg.py
 import discord
 from discord.ext import commands, tasks
 import requests
 import asyncio
+import uuid  # Import uuid for generating unique IDs
+
 
 class LFG(commands.Cog):
     def __init__(self, bot):
@@ -28,7 +31,7 @@ class LFG(commands.Cog):
             self.lfg_list = self.lfg_list[4:]
 
             # Create game room using Table Stream API
-            room_name = "SB1"  # You might want to generate unique names
+            room_name = "SB1"  # Base name for the room
             game_link = await self.create_game_room(room_name)
 
             if game_link:
@@ -43,13 +46,15 @@ class LFG(commands.Cog):
                 print("Failed to create a game room.")
 
     async def create_game_room(self, room_name):
-        url = "https://api.table-stream.com/create-room"
+        url = "https://api.table-stream.com/create-room"  # Replace with your actual API endpoint
         headers = {
             "Content-Type": "application/json"
             # Add any required authentication headers here
         }
+        # Generate a unique room name using uuid
+        unique_room_name = f"{room_name}-{uuid.uuid4().hex[:6]}"
         data = {
-            "roomName": room_name,
+            "roomName": unique_room_name,
             "gameType": "MTGCommander",
             "maxPlayers": 4,
             "private": True
@@ -57,12 +62,13 @@ class LFG(commands.Cog):
 
         try:
             response = requests.post(url, headers=headers, json=data)
-            response.raise_for_status()
+            response.raise_for_status()  # Raise an exception for bad status codes
             # Assuming the API returns the game link in the response
             return response.json().get("gameLink")
         except requests.exceptions.RequestException as e:
             print(f"Error creating game room: {e}")
             return None
+
 
 async def setup(bot):
     await bot.add_cog(LFG(bot))
