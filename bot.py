@@ -40,6 +40,7 @@ client = commands.Bot(command_prefix='/', intents=intents)
 # Global variable to keep track of the main message handling task
 message_relay_task = None
 
+
 async def send_webhook_message(webhook_url, content=None, embeds=None, username=None, avatar_url=None):
     async with aiohttp.ClientSession() as session:
         data = {}
@@ -63,6 +64,7 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
         except aiohttp.ClientError as e:
             logging.error(f"Error sending webhook message: {e}")
 
+
 @client.event
 async def on_ready():
     logging.info(f'Logged in as {client.user}')
@@ -71,6 +73,7 @@ async def on_ready():
     # Start the message relay task in the background
     if not message_relay_task:
         message_relay_task = asyncio.create_task(message_relay_loop())
+
 
 @client.event
 async def on_guild_join(guild):
@@ -94,6 +97,7 @@ async def on_guild_join(guild):
         except discord.Forbidden:
             continue
 
+
 @client.tree.command(name="setchannel", description="Set the channel for cross-server communication.")
 @has_permissions(manage_channels=True)
 async def setchannel(interaction: discord.Interaction, channel: discord.TextChannel, filter: str):
@@ -103,7 +107,8 @@ async def setchannel(interaction: discord.Interaction, channel: discord.TextChan
 
         # Check if the filter is valid
         if filter not in ("casual", "cpdh"):
-            await interaction.response.send_message("Invalid filter. Please specify either 'casual' or 'cpdh'.", ephemeral=True)
+            await interaction.response.send_message("Invalid filter. Please specify either 'casual' or 'cpdh'.",
+                                                    ephemeral=True)
             return
 
         webhook = await channel.create_webhook(name="Cross-Server Bot Webhook")
@@ -111,9 +116,12 @@ async def setchannel(interaction: discord.Interaction, channel: discord.TextChan
         CHANNEL_FILTERS[f'{interaction.guild.id}_{channel.id}'] = filter
         with open('webhooks.json', 'w') as f:
             json.dump(WEBHOOK_URLS, f, indent=4)
-        await interaction.response.send_message(f"Cross-server communication channel set to {channel.mention} with filter '{filter}'.", ephemeral=True)
+        await interaction.response.send_message(
+            f"Cross-server communication channel set to {channel.mention} with filter '{filter}'.", ephemeral=True)
     except discord.Forbidden:
-        await interaction.response.send_message("I don't have permission to create webhooks in that channel.", ephemeral=True)
+        await interaction.response.send_message("I don't have permission to create webhooks in that channel.",
+                                                ephemeral=True)
+
 
 @client.tree.command(name="disconnect", description="Disconnect a channel from cross-server communication.")
 @has_permissions(manage_channels=True)
@@ -124,25 +132,31 @@ async def disconnect(interaction: discord.Interaction, channel: discord.TextChan
             del WEBHOOK_URLS[channel_id]
             with open('webhooks.json', 'w') as f:
                 json.dump(WEBHOOK_URLS, f, indent=4)
-            await interaction.response.send_message(f"Channel {channel.mention} disconnected from cross-server communication.", ephemeral=True)
+            await interaction.response.send_message(f"Channel {channel.mention} disconnected from cross-server communication.",
+                                                    ephemeral=True)
         else:
-            await interaction.response.send_message(f"Channel {channel.mention} is not connected to cross-server communication.", ephemeral=True)
+            await interaction.response.send_message(
+                f"Channel {channel.mention} is not connected to cross-server communication.", ephemeral=True)
     except Exception as e:
         logging.error(f"Error disconnecting channel: {e}")
         await interaction.response.send_message("An error occurred while disconnecting the channel.", ephemeral=True)
+
 
 @client.tree.command(name="listconnections", description="List connected channels for cross-server communication.")
 @has_permissions(manage_channels=True)
 async def listconnections(interaction: discord.Interaction):
     try:
         if WEBHOOK_URLS:
-            connections = "\n".join([f"- <#{channel.split('_')[1]}> in {client.get_guild(int(channel.split('_')[0])).name} (filter: {CHANNEL_FILTERS.get(channel, 'none')})" for channel in WEBHOOK_URLS])
+            connections = "\n".join(
+                [f"- <#{channel.split('_')[1]}> in {client.get_guild(int(channel.split('_')[0])).name} (filter: {CHANNEL_FILTERS.get(channel, 'none')})" for
+                 channel in WEBHOOK_URLS])
             await interaction.response.send_message(f"Connected channels:\n{connections}", ephemeral=True)
         else:
             await interaction.response.send_message("There are no connected channels.", ephemeral=True)
     except Exception as e:
         logging.error(f"Error listing connections: {e}")
         await interaction.response.send_message("An error occurred while listing connections.", ephemeral=True)
+
 
 @client.tree.command(name="resetconfig", description="Reload the bot's configuration (for debugging/development).")
 @has_permissions(administrator=True)
@@ -165,12 +179,14 @@ async def resetconfig(interaction: discord.Interaction):
         else:
             await interaction.response.send_message("An error occurred while reloading the configuration.", ephemeral=True)
 
+
 async def message_relay_loop():
     while True:
         try:
             await asyncio.sleep(1)
         except Exception as e:
             logging.error(f"Error in message relay loop: {e}")
+
 
 @client.event
 async def on_message(message):
@@ -203,15 +219,17 @@ async def on_message(message):
                         avatar_url=message.author.avatar.url if message.author.avatar else None
                     )
 
-        for reaction in message.reactions:
-            try:
-                await reaction.message.add_reaction(reaction.emoji)
-            except discord.HTTPException as e:
-                logging.error(f"Error adding reaction: {e}")
+    for reaction in message.reactions:
+        try:
+            await reaction.message.add_reaction(reaction.emoji)
+        except discord.HTTPException as e:
+            logging.error(f"Error adding reaction: {e}")
+
 
 @client.event
 async def on_guild_remove(guild):
     try:
+        # Use client.user.name to get the exact role name
         role_name = client.user.name
         role = discord.utils.get(guild.roles, name=role_name)
         if role:
@@ -222,18 +240,26 @@ async def on_guild_remove(guild):
     except discord.HTTPException as e:
         logging.error(f"Error deleting role in server {guild.name}: {e}")
 
+
 @client.tree.command(name="about", description="Show information about the bot and its commands.")
 async def about(interaction: discord.Interaction):
     try:
-        embed = discord.Embed(title="Cross-Server Communication Bot", description="This bot allows you to connect channels in different servers to relay messages and facilitate communication.", color=discord.Color.blue())
-        embed.add_field(name="/setchannel", value="Set a channel for cross-server communication and assign a filter ('casual' or 'cpdh').", inline=False)
-        embed.add_field(name="/disconnect", value="Disconnect a channel from cross-server communication.", inline=False)
+        embed = discord.Embed(title="Cross-Server Communication Bot",
+                              description="This bot allows you to connect channels in different servers to relay messages and facilitate communication.",
+                              color=discord.Color.blue())
+        embed.add_field(name="/setchannel",
+                        value="Set a channel for cross-server communication and assign a filter ('casual' or 'cpdh').",
+                        inline=False)
+        embed.add_field(name="/disconnect", value="Disconnect a channel from cross-server communication.",
+                        inline=False)
         embed.add_field(name="/listconnections", value="List all connected channels and their filters.", inline=False)
-        embed.add_field(name="/resetconfig", value="Reload the bot's configuration (for debugging/development).", inline=False)
+        embed.add_field(name="/resetconfig",
+                        value="Reload the bot's configuration (for debugging/development).", inline=False)
         embed.add_field(name="/about", value="Show this information.", inline=False)
         await interaction.response.send_message(embed=embed, ephemeral=True)
     except Exception as e:
         logging.error(f"Error in /about command: {e}")
         await interaction.response.send_message("An error occurred while processing the command.", ephemeral=True)
+
 
 client.run(TOKEN)
