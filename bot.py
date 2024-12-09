@@ -67,12 +67,17 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
 
 @client.event
 async def on_ready():
+    global WEBHOOK_URLS, CHANNEL_FILTERS
     logging.info(f'Logged in as {client.user}')
+    try:
+        with open('webhooks.json', 'r') as f:
+            WEBHOOK_URLS = json.load(f)
+    except FileNotFoundError:
+        logging.warning("webhooks.json not found. Starting with empty configuration.")
+    except json.JSONDecodeError as e:
+        logging.error(f"Error decoding webhooks.json: {e}")
     await client.tree.sync()
-    global message_relay_task
-    # Start the message relay task in the background
-    if not message_relay_task:
-        message_relay_task = asyncio.create_task(message_relay_loop())
+    # ... (rest of your on_ready code) ...
 
 
 @client.event
@@ -132,8 +137,9 @@ async def disconnect(interaction: discord.Interaction, channel: discord.TextChan
             del WEBHOOK_URLS[channel_id]
             with open('webhooks.json', 'w') as f:
                 json.dump(WEBHOOK_URLS, f, indent=4)
-            await interaction.response.send_message(f"Channel {channel.mention} disconnected from cross-server communication.",
-                                                    ephemeral=True)
+            await interaction.response.send_message(
+                f"Channel {channel.mention} disconnected from cross-server communication.",
+                ephemeral=True)
         else:
             await interaction.response.send_message(
                 f"Channel {channel.mention} is not connected to cross-server communication.", ephemeral=True)
@@ -161,23 +167,43 @@ async def listconnections(interaction: discord.Interaction):
 @client.tree.command(name="resetconfig", description="Reload the bot's configuration (for debugging/development).")
 @has_permissions(administrator=True)
 async def resetconfig(interaction: discord.Interaction):
+    # Replace ALLOWED_GUILD_ID with the actual ID of your allowed server
+    ALLOWED_GUILD_ID = 123456789012345678  # Example ID, replace with your server's ID
+
+    if interaction.guild.id == ALLOWED_GUILD_ID:
+        try:
+            # Reload webhooks.json
+            global WEBHOOK_URLS, CHANNEL_FILTERS
+            with open('webhooks.json', 'r') as f:
+                WEBHOOK_URLS = json.load(f)
+
+            if interaction.response.is_done():
+                await interaction.followup.send("Bot configuration reloaded.", ephemeral=True)
+            else:
+                await interaction.response.send_message("Bot configuration reloaded.", ephemeral=True)
+
+        except Exception as e:
+            logging.error(f"Error reloading configuration: {e}")
+            if interaction.response.is_done():
+                await interaction.followup.send("An error occurred while reloading the configuration.", ephemeral=True)
+            else:
+                await interaction.response.send_message("An error occurred while reloading the configuration.",
+                                                        ephemeral=True)
+    else:
+        await interaction.response.send_message("You are not authorized to use this command.", ephemeral=True)
+
+
+@client.tree.command(name="reloadconfig", description="Reload the bot's configuration.")
+@has_permissions(manage_channels=True)  # Or any appropriate permission
+async def reloadconfig(interaction: discord.Interaction):
     try:
-        # Reload webhooks.json
         global WEBHOOK_URLS, CHANNEL_FILTERS
         with open('webhooks.json', 'r') as f:
             WEBHOOK_URLS = json.load(f)
-
-        if interaction.response.is_done():
-            await interaction.followup.send("Bot configuration reloaded.", ephemeral=True)
-        else:
-            await interaction.response.send_message("Bot configuration reloaded.", ephemeral=True)
-
+        await interaction.response.send_message("Bot configuration reloaded.", ephemeral=True)
     except Exception as e:
         logging.error(f"Error reloading configuration: {e}")
-        if interaction.response.is_done():
-            await interaction.followup.send("An error occurred while reloading the configuration.", ephemeral=True)
-        else:
-            await interaction.response.send_message("An error occurred while reloading the configuration.", ephemeral=True)
+        await interaction.response.send_message("An error occurred while reloading the configuration.", ephemeral=True)
 
 
 async def message_relay_loop():
