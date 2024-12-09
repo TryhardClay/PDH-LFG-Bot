@@ -353,6 +353,14 @@ async def about(interaction: discord.Interaction):
                         value="Reset the bot's configuration (restricted to a specific server).", inline=False)
         embed.add_field(name="/reloadconfig",
                         value="Reload the bot's configuration.", inline=False)
-        embed.add_field(name="/biglfg",  # Reverted to lowercase
+        embed.add_field(name="/biglfg",
                         value="Create a BigLFG prompt with reactions.", inline=False)
-        embed.add_field(
+        embed.add_field(name="/about", value="Show this information.", inline=False)
+
+        await interaction.followup.send(embed=embed)  # Use followup.send
+    except Exception as e:
+        logging.error(f"Error in /about command: {e}")
+        await interaction.followup.send("An error occurred while processing the command.")
+
+
+client.run(TOKEN)
