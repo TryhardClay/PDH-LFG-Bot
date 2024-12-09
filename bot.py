@@ -179,18 +179,13 @@ async def resetconfig(interaction: discord.Interaction):
             with open('webhooks.json', 'r') as f:
                 WEBHOOK_URLS = json.load(f)
 
-            if interaction.response.is_done():
-                await interaction.followup.send("Bot configuration reloaded.", ephemeral=True)
-            else:
-                await interaction.response.send_message("Bot configuration reloaded.", ephemeral=True)
+            await interaction.response.defer(ephemeral=True)
+            await interaction.followup.send("Bot configuration reloaded.")
 
         except Exception as e:
             logging.error(f"Error reloading configuration: {e}")
-            if interaction.response.is_done():
-                await interaction.followup.send("An error occurred while reloading the configuration.", ephemeral=True)
-            else:
-                await interaction.response.send_message("An error occurred while reloading the configuration.",
-                                                        ephemeral=True)
+            await interaction.response.defer(ephemeral=True)
+            await interaction.followup.send("An error occurred while reloading the configuration.")
     else:
         await interaction.response.send_message("You are not authorized to use this command.", ephemeral=True)
 
@@ -198,14 +193,15 @@ async def resetconfig(interaction: discord.Interaction):
 @client.tree.command(name="reloadconfig", description="Reload the bot's configuration.")
 @has_permissions(manage_channels=True)  # Or any appropriate permission
 async def reloadconfig(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)  # Acknowledge the interaction first
     try:
         global WEBHOOK_URLS, CHANNEL_FILTERS
         with open('webhooks.json', 'r') as f:
             WEBHOOK_URLS = json.load(f)
-        await interaction.response.send_message("Bot configuration reloaded.", ephemeral=True)
+        await interaction.followup.send("Bot configuration reloaded.")  # Use followup.send
     except Exception as e:
         logging.error(f"Error reloading configuration: {e}")
-        await interaction.response.send_message("An error occurred while reloading the configuration.", ephemeral=True)
+        await interaction.followup.send("An error occurred while reloading the configuration.")  # Use followup.send
 
 
 async def message_relay_loop():
@@ -282,7 +278,7 @@ async def about(interaction: discord.Interaction):
                         inline=False)
         embed.add_field(name="/listconnections", value="List all connected channels and their filters.", inline=False)
         embed.add_field(name="/resetconfig",
-                        value="Reload the bot's configuration (for debugging/development).", inline=False)
+                        value="Reload the bot's configuration (restricted to a specific server).", inline=False)
         embed.add_field(name="/reloadconfig",
                         value="Reload the bot's configuration.", inline=False)
         embed.add_field(name="/about", value="Show this information.", inline=False)
