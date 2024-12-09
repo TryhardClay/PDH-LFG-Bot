@@ -6,6 +6,7 @@ import os
 import logging
 from discord.ext import commands
 from discord.ext.commands import has_permissions
+import datetime  # Import datetime for timeout functionality
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -39,6 +40,8 @@ client = commands.Bot(command_prefix='/', intents=intents)
 # Global variable to keep track of the main message handling task
 message_relay_task = None
 
+# Dictionary to store BigLFG data
+big_lfg_data = {}
 
 async def send_webhook_message(webhook_url, content=None, embeds=None, username=None, avatar_url=None):
     async with aiohttp.ClientSession() as session:
@@ -76,7 +79,6 @@ async def on_ready():
     except json.JSONDecodeError as e:
         logging.error(f"Error decoding webhooks.json: {e}")
     await client.tree.sync()
-    # ... (rest of your on_ready code) ...
 
 
 @client.event
@@ -204,6 +206,80 @@ async def reloadconfig(interaction: discord.Interaction):
         await interaction.followup.send("An error occurred while reloading the configuration.")  # Use followup.send
 
 
+# BigLFG command with timeout and "full" features
+@client.tree.command(name="BigLFG", description="Create a BigLFG prompt with reactions.")
+async def BigLFG(interaction: discord.Interaction, prompt: str):
+    embed = discord.Embed(title=prompt, description="React with 👍 to join!")
+    message_ids = []
+
+    # Send the embed to all connected channels
+    for channel_id in WEBHOOK_URLS:
+        channel = client.get_channel(int(channel_id.split('_')[1]))
+        message = await channel.send(embed=embed)
+        await message.add_reaction("👍")  # Add thumbs up reaction
+        message_ids.append(f"{message.id}_{channel.id}")
+
+    # Store BigLFG data
+    big_lfg_data[message.id] = {
+        "prompt": prompt,
+        "start_time": datetime.datetime.now(),
+        "timeout": datetime.timedelta(minutes=15),  # 15-minute timeout
+        "max_thumbs_up": 4,
+        "thumbs_up_count": 0,
+        "message_ids": message_ids
+    }
+
+
+async def update_big_lfg():
+    while True:
+        await asyncio.sleep(5)  # Update every 5 seconds
+        for lfg_id, lfg_data in big_lfg_data.copy().items():  # Use a copy to avoid errors when deleting
+            elapsed_time = datetime.datetime.now() - lfg_data["start_time"]
+            if elapsed_time > lfg_data["timeout"]:
+                # Timeout reached, cancel the BigLFG
+                embed = discord.Embed(title=lfg_data["prompt"],
+                                      description="This request has been cancelled due to inactivity.")
+                for message_id in lfg_data["message_ids"]:
+                    try:
+                        channel = client.get_channel(int(message_id.split('_')[1]))
+                        message = await channel.fetch_message(int(message_id.split('_')[0]))
+                        await message.edit(embed=embed)
+                        await message.clear_reactions()
+                    except Exception as e:
+                        logging.error(f"Error cancelling BigLFG: {e}")
+                del big_lfg_data[lfg_id]  # Remove from data
+                continue
+
+            # Update thumbs up count
+            for message_id in lfg_data["message_ids"]:
+                try:
+                    channel = client.get_channel(int(message_id.split('_')[1]))
+                    message = await channel.fetch_message(int(message_id.split('_')[0]))
+                    for reaction in message.reactions:
+                        if reaction.emoji == "👍":
+                            lfg_data["thumbs_up_count"] = reaction.count - 1  # Subtract 1 for the bot's reaction
+                            break  # No need to check other reactions
+                except Exception as e:
+                    logging.error(f"Error updating BigLFG: {e}")
+
+            # Check if full
+            if lfg_data["thumbs_up_count"] >= lfg_data["max_thumbs_up"]:
+                embed = discord.Embed(title=lfg_data["prompt"], description="This game is full!")
+                for message_id in lfg_data["message_ids"]:
+                    try:
+                        channel = client.get_channel(int(message_id.split('_')[1]))
+                        message = await channel.fetch_message(int(message_id.split('_')[0]))
+                        await message.edit(embed=embed)
+                        await message.clear_reactions()
+                    except Exception as e:
+                        logging.error(f"Error updating BigLFG: {e}")
+                del big_lfg_data[lfg_id]  # Remove from data
+
+
+# Start the BigLFG update task
+asyncio.create_task(update_big_lfg())
+
+
 async def message_relay_loop():
     while True:
         try:
@@ -243,20 +319,6 @@ async def on_message(message):
                         avatar_url=message.author.avatar.url if message.author.avatar else None
                     )
 
-                    # Relay reactions
-                    for reaction in message.reactions:
-                        try:
-                            # Get the corresponding message in the destination channel
-                            destination_channel = client.get_channel(int(destination_channel_id.split('_')[1]))
-                            destination_message = await destination_channel.fetch_message(message.id)
-
-                            # Add the reaction to the destination message
-                            await destination_message.add_reaction(reaction.emoji)
-                        except discord.HTTPException as e:
-                            logging.error(f"Error adding reaction: {e}")
-                        except Exception as e:
-                            logging.error(f"Error relaying reaction: {e}")
-
 
 @client.event
 async def on_guild_remove(guild):
@@ -290,12 +352,6 @@ async def about(interaction: discord.Interaction):
                         value="Reset the bot's configuration (restricted to a specific server).", inline=False)
         embed.add_field(name="/reloadconfig",
                         value="Reload the bot's configuration.", inline=False)
+        embed.add_field(name="/BigLFG",
+                        value="Create a BigLFG prompt with reactions.", inline=False)
         embed.add_field(name="/about", value="Show this information.", inline=False)
-        
-        await interaction.followup.send(embed=embed)  # Use followup.send
-    except Exception as e:
-        logging.error(f"Error in /about command: {e}")
-        await interaction.followup.send("An error occurred while processing the command.")
-
-
-client.run(TOKEN)
