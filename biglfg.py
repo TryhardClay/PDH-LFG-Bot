@@ -3,7 +3,10 @@ import asyncio
 import datetime
 import discord
 
-from bot import client, logging, big_lfg_data, WEBHOOK_URLS  # Import necessary variables and client
+from bot import client, logging, WEBHOOK_URLS  # Import necessary variables and client
+
+# Dictionary to store BigLFG data (ADDED)
+big_lfg_data = {} 
 
 
 # BigLFG command with timeout and "full" features
