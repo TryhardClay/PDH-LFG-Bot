@@ -10,4 +10,8 @@ COPY . .
 
 EXPOSE 54321  # Expose the port
 
+# Uninstall and reinstall discord.py
+RUN pip uninstall -y discord.py 
+RUN pip install discord.py==2.3.2
+
 CMD ["python", "bot.py"]
