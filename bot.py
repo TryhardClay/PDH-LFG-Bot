@@ -1,4 +1,5 @@
 import discord
+import re
 import aiohttp
 import asyncio
 import json
@@ -34,8 +35,7 @@ intents.message_content = True
 intents.guilds = True
 intents.members = True
 
-# Initialize the bot with the correct prefix and intents
-bot = commands.Bot(command_prefix="!", intents=intents)
+client = commands.Bot(command_prefix='/', intents=intents)
 
 # Global variable to keep track of the main message handling task
 message_relay_task = None
@@ -63,21 +63,19 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
         except aiohttp.ClientError as e:
             logging.error(f"Error sending webhook message: {e}")
 
-@bot.event
+@client.event
 async def on_ready():
-    logging.info(f'Logged in as {bot.user}')
-    await bot.tree.sync()
+    logging.info(f'Logged in as {client.user}')
+    await client.tree.sync()
     global message_relay_task
     # Start the message relay task in the background
     if not message_relay_task:
         message_relay_task = asyncio.create_task(message_relay_loop())
 
-    # Removed: await bot.load_extension("lfg")
-
-@bot.event
+@client.event
 async def on_guild_join(guild):
     try:
-        bot_role = await guild.create_role(name=bot.user.name, mentionable=True)
+        bot_role = await guild.create_role(name=client.user.name, mentionable=True)
         logging.info(f"Created role {bot_role.name} in server {guild.name}")
         try:
             await guild.me.add_roles(bot_role)
@@ -96,7 +94,7 @@ async def on_guild_join(guild):
         except discord.Forbidden:
             continue
 
-@bot.tree.command(name="setchannel", description="Set the channel for cross-server communication.")
+@client.tree.command(name="setchannel", description="Set the channel for cross-server communication.")
 @has_permissions(manage_channels=True)
 async def setchannel(interaction: discord.Interaction, channel: discord.TextChannel, filter: str):
     try:
@@ -117,7 +115,7 @@ async def setchannel(interaction: discord.Interaction, channel: discord.TextChan
     except discord.Forbidden:
         await interaction.response.send_message("I don't have permission to create webhooks in that channel.", ephemeral=True)
 
-@bot.tree.command(name="disconnect", description="Disconnect a channel from cross-server communication.")
+@client.tree.command(name="disconnect", description="Disconnect a channel from cross-server communication.")
 @has_permissions(manage_channels=True)
 async def disconnect(interaction: discord.Interaction, channel: discord.TextChannel):
     try:
@@ -133,12 +131,12 @@ async def disconnect(interaction: discord.Interaction, channel: discord.TextChan
         logging.error(f"Error disconnecting channel: {e}")
         await interaction.response.send_message("An error occurred while disconnecting the channel.", ephemeral=True)
 
-@bot.tree.command(name="listconnections", description="List connected channels for cross-server communication.")
+@client.tree.command(name="listconnections", description="List connected channels for cross-server communication.")
 @has_permissions(manage_channels=True)
 async def listconnections(interaction: discord.Interaction):
     try:
         if WEBHOOK_URLS:
-            connections = "\n".join([f"- <#{channel.split('_')[1]}> in {bot.get_guild(int(channel.split('_')[0])).name} (filter: {CHANNEL_FILTERS.get(channel, 'none')})" for channel in WEBHOOK_URLS])
+            connections = "\n".join([f"- <#{channel.split('_')[1]}> in {client.get_guild(int(channel.split('_')[0])).name} (filter: {CHANNEL_FILTERS.get(channel, 'none')})" for channel in WEBHOOK_URLS])
             await interaction.response.send_message(f"Connected channels:\n{connections}", ephemeral=True)
         else:
             await interaction.response.send_message("There are no connected channels.", ephemeral=True)
@@ -146,7 +144,7 @@ async def listconnections(interaction: discord.Interaction):
         logging.error(f"Error listing connections: {e}")
         await interaction.response.send_message("An error occurred while listing connections.", ephemeral=True)
 
-@bot.tree.command(name="resetconfig", description="Reload the bot's configuration (for debugging/development).")
+@client.tree.command(name="resetconfig", description="Reload the bot's configuration (for debugging/development).")
 @has_permissions(administrator=True)
 async def resetconfig(interaction: discord.Interaction):
     try:
@@ -174,13 +172,12 @@ async def message_relay_loop():
         except Exception as e:
             logging.error(f"Error in message relay loop: {e}")
 
-@bot.event
+@client.event
 async def on_message(message):
-    if message.author == bot.user:
-        return  # Ignore messages from the bot itself
+    if message.author == client.user:
+        return
 
-    # Only ignore webhook messages that are NOT from the bot itself
-    if message.webhook_id and message.author.id != bot.user.id:
+    if message.webhook_id and message.author.id != client.user.id:
         return
 
     content = message.content
@@ -212,10 +209,10 @@ async def on_message(message):
             except discord.HTTPException as e:
                 logging.error(f"Error adding reaction: {e}")
 
-@bot.event
+@client.event
 async def on_guild_remove(guild):
     try:
-        role_name = bot.user.name
+        role_name = client.user.name
         role = discord.utils.get(guild.roles, name=role_name)
         if role:
             await role.delete()
@@ -225,7 +222,7 @@ async def on_guild_remove(guild):
     except discord.HTTPException as e:
         logging.error(f"Error deleting role in server {guild.name}: {e}")
 
-@bot.tree.command(name="about", description="Show information about the bot and its commands.")
+@client.tree.command(name="about", description="Show information about the bot and its commands.")
 async def about(interaction: discord.Interaction):
     try:
         embed = discord.Embed(title="Cross-Server Communication Bot", description="This bot allows you to connect channels in different servers to relay messages and facilitate communication.", color=discord.Color.blue())
@@ -239,4 +236,4 @@ async def about(interaction: discord.Interaction):
         logging.error(f"Error in /about command: {e}")
         await interaction.response.send_message("An error occurred while processing the command.", ephemeral=True)
 
-bot.run(TOKEN)
+client.run(TOKEN)
