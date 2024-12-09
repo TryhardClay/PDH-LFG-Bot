@@ -166,9 +166,9 @@ async def listconnections(interaction: discord.Interaction):
         await interaction.response.send_message("An error occurred while listing connections.", ephemeral=True)
 
 
-@client.tree.command(name="resetconfig", description="Reload the bot's configuration (for debugging/development).")
+@client.tree.command(name="configreset", description="Reset the bot's configuration (for debugging/development).")
 @has_permissions(administrator=True)
-async def resetconfig(interaction: discord.Interaction):
+async def configreset(interaction: discord.Interaction):
     # Replace ALLOWED_GUILD_ID with the actual ID of your allowed server
     ALLOWED_GUILD_ID = 123456789012345678  # Example ID, replace with your server's ID
 
@@ -180,12 +180,12 @@ async def resetconfig(interaction: discord.Interaction):
                 WEBHOOK_URLS = json.load(f)
 
             await interaction.response.defer(ephemeral=True)
-            await interaction.followup.send("Bot configuration reloaded.")
+            await interaction.followup.send("Bot configuration reset.")  # Updated message
 
         except Exception as e:
-            logging.error(f"Error reloading configuration: {e}")
+            logging.error(f"Error resetting configuration: {e}")  # Updated log message
             await interaction.response.defer(ephemeral=True)
-            await interaction.followup.send("An error occurred while reloading the configuration.")
+            await interaction.followup.send("An error occurred while resetting the configuration.")  # Updated message
     else:
         await interaction.response.send_message("You are not authorized to use this command.", ephemeral=True)
 
@@ -243,11 +243,19 @@ async def on_message(message):
                         avatar_url=message.author.avatar.url if message.author.avatar else None
                     )
 
-    for reaction in message.reactions:
-        try:
-            await reaction.message.add_reaction(reaction.emoji)
-        except discord.HTTPException as e:
-            logging.error(f"Error adding reaction: {e}")
+                    # Relay reactions (new addition)
+                    for reaction in message.reactions:
+                        try:
+                            # Get the corresponding message in the destination channel
+                            destination_channel = client.get_channel(int(destination_channel_id.split('_')[1]))
+                            destination_message = await destination_channel.fetch_message(message.id)
+
+                            # Add the reaction to the destination message
+                            await destination_message.add_reaction(reaction.emoji)
+                        except discord.HTTPException as e:
+                            logging.error(f"Error adding reaction: {e}")
+                        except Exception as e:
+                            logging.error(f"Error relaying reaction: {e}")
 
 
 @client.event
@@ -277,8 +285,8 @@ async def about(interaction: discord.Interaction):
         embed.add_field(name="/disconnect", value="Disconnect a channel from cross-server communication.",
                         inline=False)
         embed.add_field(name="/listconnections", value="List all connected channels and their filters.", inline=False)
-        embed.add_field(name="/resetconfig",
-                        value="Reload the bot's configuration (restricted to a specific server).", inline=False)
+        embed.add_field(name="/configreset",  # Updated command name
+                        value="Reset the bot's configuration (restricted to a specific server).", inline=False)
         embed.add_field(name="/reloadconfig",
                         value="Reload the bot's configuration.", inline=False)
         embed.add_field(name="/about", value="Show this information.", inline=False)
