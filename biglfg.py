@@ -1,4 +1,3 @@
-# biglfg.py
 import asyncio
 import datetime
 import discord
