@@ -43,6 +43,7 @@ message_relay_task = None
 # Dictionary to store BigLFG data
 big_lfg_data = {}
 
+
 async def send_webhook_message(webhook_url, content=None, embeds=None, username=None, avatar_url=None):
     async with aiohttp.ClientSession() as session:
         data = {}
@@ -352,6 +353,3 @@ async def about(interaction: discord.Interaction):
                         value="Reset the bot's configuration (restricted to a specific server).", inline=False)
         embed.add_field(name="/reloadconfig",
                         value="Reload the bot's configuration.", inline=False)
-        embed.add_field(name="/BigLFG",
-                        value="Create a BigLFG prompt with reactions.", inline=False)
-        embed.add_field(name="/about", value="Show this information.", inline=False)
