@@ -352,4 +352,3 @@ async def about(interaction: discord.Interaction):
         embed.add_field(name="/configreset",  # Updated command name
                         value="Reset the bot's configuration (restricted to a specific server).", inline=False)
         embed.add_field(name="/reloadconfig",
-                        value="Reload the bot's configuration.", inline=False)
