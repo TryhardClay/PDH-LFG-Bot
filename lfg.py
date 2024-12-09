@@ -12,14 +12,14 @@ class LFG(commands.Cog):
     def cog_unload(self):
         self.check_for_games.cancel()
 
-    @discord.slash_command(name="xserverlfg", description="Add yourself to the Looking-For-Group queue")
-    async def xserverlfg(self, ctx: discord.ApplicationContext):
-        user = ctx.author
+    @discord.slash_command(name="xserverlfg", description="Add yourself to the Looking-For-Group queue")  # Corrected decorator
+    async def xserverlfg(self, ctx: discord.ApplicationContext):  # Corrected context
+        user = ctx.author  # Access user from context
         if user.id not in self.lfg_list:
             self.lfg_list.append(user.id)
-            await ctx.respond(f"{user.mention} has been added to the LFG queue.", ephemeral=True)
+            await ctx.respond(f"{user.mention} has been added to the LFG queue.", ephemeral=True)  # Use ctx.respond()
         else:
-            await ctx.respond(f"{user.mention} is already in the LFG queue.", ephemeral=True)
+            await ctx.respond(f"{user.mention} is already in the LFG queue.", ephemeral=True)  # Use ctx.respond()
 
     @tasks.loop(seconds=60)  # Check every minute
     async def check_for_games(self):
