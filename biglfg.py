@@ -5,7 +5,7 @@ import discord
 
 from bot import client, logging, WEBHOOK_URLS  # Import necessary variables and client
 
-# Dictionary to store BigLFG data (ADDED)
+# Dictionary to store BigLFG data 
 big_lfg_data = {} 
 
 
@@ -77,7 +77,3 @@ async def update_big_lfg():
                     except Exception as e:
                         logging.error(f"Error updating BigLFG: {e}")
                 del big_lfg_data[lfg_id]  # Remove from data
-
-
-# Start the BigLFG update task
-asyncio.create_task(update_big_lfg())
