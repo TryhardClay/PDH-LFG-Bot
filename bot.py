@@ -277,10 +277,6 @@ async def update_big_lfg():
                 del big_lfg_data[lfg_id]  # Remove from data
 
 
-# Start the BigLFG update task
-asyncio.create_task(update_big_lfg())
-
-
 async def message_relay_loop():
     while True:
         try:
