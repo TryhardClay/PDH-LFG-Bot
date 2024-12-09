@@ -67,42 +67,39 @@ async def listconnections(interaction: discord.Interaction):
         await interaction.response.send_message("An error occurred while listing connections.", ephemeral=True)
 
 
+# Configuration commands
 @client.tree.command(name="configreset", description="Reset the bot's configuration (for debugging/development).")
 @has_permissions(administrator=True)
 async def configreset(interaction: discord.Interaction):
-    # Replace ALLOWED_GUILD_ID with the actual ID of your allowed server
-    ALLOWED_GUILD_ID = 123456789012345678  # Example ID, replace with your server's ID
+    try:
+        # Reset webhooks.json to an empty dictionary
+        global WEBHOOK_URLS, CHANNEL_FILTERS
+        WEBHOOK_URLS = {}
+        CHANNEL_FILTERS = {}
+        with open('webhooks.json', 'w') as f:
+            json.dump(WEBHOOK_URLS, f, indent=4)
 
-    if interaction.guild.id == ALLOWED_GUILD_ID:
-        try:
-            # Reload webhooks.json
-            global WEBHOOK_URLS, CHANNEL_FILTERS
-            with open('webhooks.json', 'r') as f:
-                WEBHOOK_URLS = json.load(f)
+        await interaction.response.defer(ephemeral=True)
+        await interaction.followup.send("Bot configuration reset.")
 
-            await interaction.response.defer(ephemeral=True)
-            await interaction.followup.send("Bot configuration reset.")  # Updated message
-
-        except Exception as e:
-            logging.error(f"Error resetting configuration: {e}")  # Updated log message
-            await interaction.response.defer(ephemeral=True)
-            await interaction.followup.send("An error occurred while resetting the configuration.")  # Updated message
-    else:
-        await interaction.response.send_message("You are not authorized to use this command.", ephemeral=True)
+    except Exception as e:
+        logging.error(f"Error resetting configuration: {e}")
+        await interaction.response.defer(ephemeral=True)
+        await interaction.followup.send("An error occurred while resetting the configuration.")
 
 
 @client.tree.command(name="reloadconfig", description="Reload the bot's configuration.")
-@has_permissions(manage_channels=True)  # Or any appropriate permission
+@has_permissions(manage_channels=True)
 async def reloadconfig(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)  # Acknowledge the interaction first
     try:
         global WEBHOOK_URLS, CHANNEL_FILTERS
         with open('webhooks.json', 'r') as f:
             WEBHOOK_URLS = json.load(f)
-        await interaction.followup.send("Bot configuration reloaded.")  # Use followup.send
+        await interaction.followup.send("Bot configuration reloaded.")
     except Exception as e:
         logging.error(f"Error reloading configuration: {e}")
-        await interaction.followup.send("An error occurred while reloading the configuration.")  # Use followup.send
+        await interaction.followup.send("An error occurred while reloading the configuration.")
 
 
 @client.tree.command(name="about", description="Show information about the bot and its commands.")
