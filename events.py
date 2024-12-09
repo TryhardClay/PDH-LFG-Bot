@@ -1,6 +1,9 @@
 # events.py
 import discord
-from bot import client, logging  # Import necessary variables and client
+import asyncio  # Import asyncio for task creation
+
+from bot import client, logging, WEBHOOK_URLS, CHANNEL_FILTERS  # Import necessary variables and client
+import biglfg  # Import the biglfg module
 
 
 @client.event
@@ -15,6 +18,9 @@ async def on_ready():
     except json.JSONDecodeError as e:
         logging.error(f"Error decoding webhooks.json: {e}")
     await client.tree.sync()
+
+    # Start the BigLFG update task
+    asyncio.create_task(biglfg.update_big_lfg())
 
 
 @client.event
