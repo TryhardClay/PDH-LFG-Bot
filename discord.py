@@ -1,1 +1,1 @@
-pip install -U discord.py
+#!/usr/bin/env python3
