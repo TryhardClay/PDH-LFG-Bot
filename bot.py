@@ -243,7 +243,7 @@ async def on_message(message):
                         avatar_url=message.author.avatar.url if message.author.avatar else None
                     )
 
-                    # Relay reactions (new addition)
+                    # Relay reactions
                     for reaction in message.reactions:
                         try:
                             # Get the corresponding message in the destination channel
@@ -275,6 +275,7 @@ async def on_guild_remove(guild):
 
 @client.tree.command(name="about", description="Show information about the bot and its commands.")
 async def about(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)  # Defer the interaction first
     try:
         embed = discord.Embed(title="Cross-Server Communication Bot",
                               description="This bot allows you to connect channels in different servers to relay messages and facilitate communication.",
@@ -290,10 +291,11 @@ async def about(interaction: discord.Interaction):
         embed.add_field(name="/reloadconfig",
                         value="Reload the bot's configuration.", inline=False)
         embed.add_field(name="/about", value="Show this information.", inline=False)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        
+        await interaction.followup.send(embed=embed)  # Use followup.send
     except Exception as e:
         logging.error(f"Error in /about command: {e}")
-        await interaction.response.send_message("An error occurred while processing the command.", ephemeral=True)
+        await interaction.followup.send("An error occurred while processing the command.")
 
 
 client.run(TOKEN)
