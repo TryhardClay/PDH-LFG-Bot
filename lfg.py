@@ -1,32 +1,31 @@
 import discord
-from discord import app_commands
 from discord.ext import commands, tasks
 import requests
-import asyncio  # For asynchronous operations
+import asyncio
 
 class LFG(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.lfg_list = [] 
-        self.check_for_games.start() 
+        self.lfg_list = []
+        self.check_for_games.start()
 
     def cog_unload(self):
         self.check_for_games.cancel()
 
-    @app_commands.slash_command(name="xserverlfg", description="Add yourself to the Looking-For-Group queue")
-    async def xserverlfg(self, interaction: discord.Interaction):
-        user = interaction.user
+    @discord.slash_command(name="xserverlfg", description="Add yourself to the Looking-For-Group queue")
+    async def xserverlfg(self, ctx: discord.ApplicationContext):
+        user = ctx.author
         if user.id not in self.lfg_list:
             self.lfg_list.append(user.id)
-            await interaction.response.send_message(f"{user.mention} has been added to the LFG queue.", ephemeral=True)
+            await ctx.respond(f"{user.mention} has been added to the LFG queue.", ephemeral=True)
         else:
-            await interaction.response.send_message(f"{user.mention} is already in the LFG queue.", ephemeral=True)
+            await ctx.respond(f"{user.mention} is already in the LFG queue.", ephemeral=True)
 
     @tasks.loop(seconds=60)  # Check every minute
     async def check_for_games(self):
         if len(self.lfg_list) >= 4:
-            players = self.lfg_list[:4] 
-            self.lfg_list = self.lfg_list[4:] 
+            players = self.lfg_list[:4]
+            self.lfg_list = self.lfg_list[4:]
 
             # Create game room using Table Stream API
             room_name = "SB1"  # You might want to generate unique names
@@ -60,7 +59,7 @@ class LFG(commands.Cog):
             response = requests.post(url, headers=headers, json=data)
             response.raise_for_status()  # Raise an exception for bad status codes
             # Assuming the API returns the game link in the response
-            return response.json().get("gameLink") 
+            return response.json().get("gameLink")
         except requests.exceptions.RequestException as e:
             print(f"Error creating game room: {e}")
             return None
