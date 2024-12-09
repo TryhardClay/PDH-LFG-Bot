@@ -35,7 +35,8 @@ intents.message_content = True
 intents.guilds = True
 intents.members = True
 
-client = commands.Bot(command_prefix='/', intents=intents)
+# Initialize the bot with the correct prefix and intents
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 # Global variable to keep track of the main message handling task
 message_relay_task = None
@@ -63,10 +64,10 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
         except aiohttp.ClientError as e:
             logging.error(f"Error sending webhook message: {e}")
 
-@client.event
+@bot.event
 async def on_ready():
-    logging.info(f'Logged in as {client.user}')
-    await client.tree.sync()
+    logging.info(f'Logged in as {bot.user}')
+    await bot.tree.sync()
     global message_relay_task
     # Start the message relay task in the background
     if not message_relay_task:
@@ -74,15 +75,15 @@ async def on_ready():
 
     # Load the lfg extension
     try:
-        await client.load_extension("lfg")
+        await bot.load_extension("lfg")
         logging.info("LFG extension loaded.")
     except Exception as e:
         logging.error(f"Failed to load LFG extension: {e}")
 
-@client.event
+@bot.event
 async def on_guild_join(guild):
     try:
-        bot_role = await guild.create_role(name=client.user.name, mentionable=True)
+        bot_role = await guild.create_role(name=bot.user.name, mentionable=True)
         logging.info(f"Created role {bot_role.name} in server {guild.name}")
         try:
             await guild.me.add_roles(bot_role)
@@ -101,7 +102,7 @@ async def on_guild_join(guild):
         except discord.Forbidden:
             continue
 
-@client.tree.command(name="setchannel", description="Set the channel for cross-server communication.")
+@bot.tree.command(name="setchannel", description="Set the channel for cross-server communication.")
 @has_permissions(manage_channels=True)
 async def setchannel(interaction: discord.Interaction, channel: discord.TextChannel, filter: str):
     try:
@@ -122,7 +123,7 @@ async def setchannel(interaction: discord.Interaction, channel: discord.TextChan
     except discord.Forbidden:
         await interaction.response.send_message("I don't have permission to create webhooks in that channel.", ephemeral=True)
 
-@client.tree.command(name="disconnect", description="Disconnect a channel from cross-server communication.")
+@bot.tree.command(name="disconnect", description="Disconnect a channel from cross-server communication.")
 @has_permissions(manage_channels=True)
 async def disconnect(interaction: discord.Interaction, channel: discord.TextChannel):
     try:
@@ -138,12 +139,12 @@ async def disconnect(interaction: discord.Interaction, channel: discord.TextChan
         logging.error(f"Error disconnecting channel: {e}")
         await interaction.response.send_message("An error occurred while disconnecting the channel.", ephemeral=True)
 
-@client.tree.command(name="listconnections", description="List connected channels for cross-server communication.")
+@bot.tree.command(name="listconnections", description="List connected channels for cross-server communication.")
 @has_permissions(manage_channels=True)
 async def listconnections(interaction: discord.Interaction):
     try:
         if WEBHOOK_URLS:
-            connections = "\n".join([f"- <#{channel.split('_')[1]}> in {client.get_guild(int(channel.split('_')[0])).name} (filter: {CHANNEL_FILTERS.get(channel, 'none')})" for channel in WEBHOOK_URLS])
+            connections = "\n".join([f"- <#{channel.split('_')[1]}> in {bot.get_guild(int(channel.split('_')[0])).name} (filter: {CHANNEL_FILTERS.get(channel, 'none')})" for channel in WEBHOOK_URLS])
             await interaction.response.send_message(f"Connected channels:\n{connections}", ephemeral=True)
         else:
             await interaction.response.send_message("There are no connected channels.", ephemeral=True)
@@ -151,7 +152,7 @@ async def listconnections(interaction: discord.Interaction):
         logging.error(f"Error listing connections: {e}")
         await interaction.response.send_message("An error occurred while listing connections.", ephemeral=True)
 
-@client.tree.command(name="resetconfig", description="Reload the bot's configuration (for debugging/development).")
+@bot.tree.command(name="resetconfig", description="Reload the bot's configuration (for debugging/development).")
 @has_permissions(administrator=True)
 async def resetconfig(interaction: discord.Interaction):
     try:
@@ -179,45 +180,14 @@ async def message_relay_loop():
         except Exception as e:
             logging.error(f"Error in message relay loop: {e}")
 
-@client.event
+@bot.event
 async def on_message(message):
-    if message.author == client.user:
+    if message.author == bot.user:
         return  # Ignore messages from the bot itself
 
     # Only ignore webhook messages that are NOT from the bot itself
-    if message.webhook_id and message.author.id != client.user.id:
+    if message.webhook_id and message.author.id != bot.user.id:
         return
-
-    # Check if the message is a SpellBot prompt and contains an embed
-    if message.author.id == 725510263251402832 and message.embeds:
-        logging.info("SpellBot prompt with embed detected:")
-        logging.info(f"  Embed content: {message.embeds[0].description}")  # Log the embed description
-
-        # Extract the SpellTable link from the embed description
-        embed_description = message.embeds[0].description
-        spelltable_link = re.search(r"(https?://[^\s]+)", embed_description)
-        if spelltable_link:
-            spelltable_link = spelltable_link.group(1)
-            logging.info(f"  Extracted SpellTable link: {spelltable_link}")
-
-            # Redistribute the prompt
-            source_channel_id = f'{message.guild.id}_{message.channel.id}'
-            if source_channel_id in WEBHOOK_URLS:
-                source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
-
-                for destination_channel_id, webhook_url in WEBHOOK_URLS.items():
-                    if source_channel_id != destination_channel_id:
-                        destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
-
-                        if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
-                            await send_webhook_message(
-                                webhook_url,
-                                content=f"**SpellTable game from {message.guild.name}:** {spelltable_link}",
-                                username=f"{message.author.name} from {message.guild.name}",
-                                avatar_url=message.author.avatar.url if message.author.avatar else None
-                            )
-        else:
-            logging.warning("  Failed to extract SpellTable link from embed.")
 
     content = message.content
     embeds = [embed.to_dict() for embed in message.embeds]
@@ -248,10 +218,10 @@ async def on_message(message):
             except discord.HTTPException as e:
                 logging.error(f"Error adding reaction: {e}")
 
-@client.event
+@bot.event
 async def on_guild_remove(guild):
     try:
-        role_name = client.user.name
+        role_name = bot.user.name
         role = discord.utils.get(guild.roles, name=role_name)
         if role:
             await role.delete()
@@ -261,7 +231,7 @@ async def on_guild_remove(guild):
     except discord.HTTPException as e:
         logging.error(f"Error deleting role in server {guild.name}: {e}")
 
-@client.tree.command(name="about", description="Show information about the bot and its commands.")
+@bot.tree.command(name="about", description="Show information about the bot and its commands.")
 async def about(interaction: discord.Interaction):
     try:
         embed = discord.Embed(title="Cross-Server Communication Bot", description="This bot allows you to connect channels in different servers to relay messages and facilitate communication.", color=discord.Color.blue())
@@ -275,4 +245,4 @@ async def about(interaction: discord.Interaction):
         logging.error(f"Error in /about command: {e}")
         await interaction.response.send_message("An error occurred while processing the command.", ephemeral=True)
 
-client.run(TOKEN)
+bot.run(TOKEN)
