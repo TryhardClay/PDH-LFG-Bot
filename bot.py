@@ -5,7 +5,7 @@ import asyncio
 import json
 import os
 import logging
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord.ext.commands import has_permissions
 
 # Set up logging
@@ -72,6 +72,13 @@ async def on_ready():
     if not message_relay_task:
         message_relay_task = asyncio.create_task(message_relay_loop())
 
+    # Load the lfg extension
+    try:
+        await client.load_extension("lfg")
+        logging.info("LFG extension loaded.")
+    except Exception as e:
+        logging.error(f"Failed to load LFG extension: {e}")
+
 @client.event
 async def on_guild_join(guild):
     try:
@@ -94,76 +101,7 @@ async def on_guild_join(guild):
         except discord.Forbidden:
             continue
 
-@client.tree.command(name="setchannel", description="Set the channel for cross-server communication.")
-@has_permissions(manage_channels=True)
-async def setchannel(interaction: discord.Interaction, channel: discord.TextChannel, filter: str):
-    try:
-        # Convert filter to lowercase for consistency
-        filter = filter.lower()
-
-        # Check if the filter is valid
-        if filter not in ("casual", "cpdh"):
-            await interaction.response.send_message("Invalid filter. Please specify either 'casual' or 'cpdh'.", ephemeral=True)
-            return
-
-        webhook = await channel.create_webhook(name="Cross-Server Bot Webhook")
-        WEBHOOK_URLS[f'{interaction.guild.id}_{channel.id}'] = webhook.url
-        CHANNEL_FILTERS[f'{interaction.guild.id}_{channel.id}'] = filter
-        with open('webhooks.json', 'w') as f:
-            json.dump(WEBHOOK_URLS, f, indent=4)
-        await interaction.response.send_message(f"Cross-server communication channel set to {channel.mention} with filter '{filter}'.", ephemeral=True)
-    except discord.Forbidden:
-        await interaction.response.send_message("I don't have permission to create webhooks in that channel.", ephemeral=True)
-
-@client.tree.command(name="disconnect", description="Disconnect a channel from cross-server communication.")
-@has_permissions(manage_channels=True)
-async def disconnect(interaction: discord.Interaction, channel: discord.TextChannel):
-    try:
-        channel_id = f'{interaction.guild.id}_{channel.id}'
-        if channel_id in WEBHOOK_URLS:
-            del WEBHOOK_URLS[channel_id]
-            with open('webhooks.json', 'w') as f:
-                json.dump(WEBHOOK_URLS, f, indent=4)
-            await interaction.response.send_message(f"Channel {channel.mention} disconnected from cross-server communication.", ephemeral=True)
-        else:
-            await interaction.response.send_message(f"Channel {channel.mention} is not connected to cross-server communication.", ephemeral=True)
-    except Exception as e:
-        logging.error(f"Error disconnecting channel: {e}")
-        await interaction.response.send_message("An error occurred while disconnecting the channel.", ephemeral=True)
-
-@client.tree.command(name="listconnections", description="List connected channels for cross-server communication.")
-@has_permissions(manage_channels=True)
-async def listconnections(interaction: discord.Interaction):
-    try:
-        if WEBHOOK_URLS:
-            connections = "\n".join([f"- <#{channel.split('_')[1]}> in {client.get_guild(int(channel.split('_')[0])).name} (filter: {CHANNEL_FILTERS.get(channel, 'none')})" for channel in WEBHOOK_URLS])
-            await interaction.response.send_message(f"Connected channels:\n{connections}", ephemeral=True)
-        else:
-            await interaction.response.send_message("There are no connected channels.", ephemeral=True)
-    except Exception as e:
-        logging.error(f"Error listing connections: {e}")
-        await interaction.response.send_message("An error occurred while listing connections.", ephemeral=True)
-
-@client.tree.command(name="resetconfig", description="Reload the bot's configuration (for debugging/development).")
-@has_permissions(administrator=True)
-async def resetconfig(interaction: discord.Interaction):
-    try:
-        # Reload webhooks.json
-        global WEBHOOK_URLS, CHANNEL_FILTERS
-        with open('webhooks.json', 'r') as f:
-            WEBHOOK_URLS = json.load(f)
-
-        if interaction.response.is_done():
-            await interaction.followup.send("Bot configuration reloaded.", ephemeral=True)
-        else:
-            await interaction.response.send_message("Bot configuration reloaded.", ephemeral=True)
-
-    except Exception as e:
-        logging.error(f"Error reloading configuration: {e}")
-        if interaction.response.is_done():
-            await interaction.followup.send("An error occurred while reloading the configuration.", ephemeral=True)
-        else:
-            await interaction.response.send_message("An error occurred while reloading the configuration.", ephemeral=True)
+# ... (rest of your commands and events)
 
 async def message_relay_loop():
     while True:
@@ -174,98 +112,14 @@ async def message_relay_loop():
 
 @client.event
 async def on_message(message):
-    if message.author == client.user:
-        return  # Ignore messages from the bot itself
-
-    # Only ignore webhook messages that are NOT from the bot itself
-    if message.webhook_id and message.author.id != client.user.id:
-        return
-
-    # Check if the message is a SpellBot prompt and contains an embed
-    if message.author.id == 725510263251402832 and message.embeds:
-        logging.info("SpellBot prompt with embed detected:")
-        logging.info(f"  Embed content: {message.embeds[0].description}")  # Log the embed description
-
-        # Extract the SpellTable link from the embed description
-        embed_description = message.embeds[0].description
-        spelltable_link = re.search(r"(https?://[^\s]+)", embed_description)
-        if spelltable_link:
-            spelltable_link = spelltable_link.group(1)
-            logging.info(f"  Extracted SpellTable link: {spelltable_link}")
-
-            # Redistribute the prompt
-            source_channel_id = f'{message.guild.id}_{message.channel.id}'
-            if source_channel_id in WEBHOOK_URLS:
-                source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
-
-                for destination_channel_id, webhook_url in WEBHOOK_URLS.items():
-                    if source_channel_id != destination_channel_id:
-                        destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
-
-                        if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
-                            await send_webhook_message(
-                                webhook_url,
-                                content=f"**SpellTable game from {message.guild.name}:** {spelltable_link}",
-                                username=f"{message.author.name} from {message.guild.name}",
-                                avatar_url=message.author.avatar.url if message.author.avatar else None
-                            )
-        else:
-            logging.warning("  Failed to extract SpellTable link from embed.")
-
-    content = message.content
-    embeds = [embed.to_dict() for embed in message.embeds]
-    if message.attachments:
-        content += "\n" + "\n".join([attachment.url for attachment in message.attachments])
-
-    source_channel_id = f'{message.guild.id}_{message.channel.id}'
-
-    if source_channel_id in WEBHOOK_URLS:
-        source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
-
-        for destination_channel_id, webhook_url in WEBHOOK_URLS.items():
-            if source_channel_id != destination_channel_id:
-                destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
-
-                if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
-                    await send_webhook_message(
-                        webhook_url,
-                        content=content,
-                        embeds=embeds,
-                        username=f"{message.author.name} from {message.guild.name}",
-                        avatar_url=message.author.avatar.url if message.author.avatar else None
-                    )
-
-        for reaction in message.reactions:
-            try:
-                await reaction.message.add_reaction(reaction.emoji)
-            except discord.HTTPException as e:
-                logging.error(f"Error adding reaction: {e}")
+    # ... (your on_message logic)
 
 @client.event
 async def on_guild_remove(guild):
-    try:
-        role_name = client.user.name
-        role = discord.utils.get(guild.roles, name=role_name)
-        if role:
-            await role.delete()
-            logging.info(f"Deleted role {role_name} from server {guild.name}")
-    except discord.Forbidden:
-        logging.warning(f"Missing permissions to delete role in server {guild.name}")
-    except discord.HTTPException as e:
-        logging.error(f"Error deleting role in server {guild.name}: {e}")
+    # ... (your on_guild_remove logic)
 
 @client.tree.command(name="about", description="Show information about the bot and its commands.")
 async def about(interaction: discord.Interaction):
-    try:
-        embed = discord.Embed(title="Cross-Server Communication Bot", description="This bot allows you to connect channels in different servers to relay messages and facilitate communication.", color=discord.Color.blue())
-        embed.add_field(name="/setchannel", value="Set a channel for cross-server communication and assign a filter ('casual' or 'cpdh').", inline=False)
-        embed.add_field(name="/disconnect", value="Disconnect a channel from cross-server communication.", inline=False)
-        embed.add_field(name="/listconnections", value="List all connected channels and their filters.", inline=False)
-        embed.add_field(name="/resetconfig", value="Reload the bot's configuration (for debugging/development).", inline=False)
-        embed.add_field(name="/about", value="Show this information.", inline=False)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-    except Exception as e:
-        logging.error(f"Error in /about command: {e}")
-        await interaction.response.send_message("An error occurred while processing the command.", ephemeral=True)
+    # ... (your about logic)
 
 client.run(TOKEN)
