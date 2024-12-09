@@ -40,9 +40,6 @@ intents.members = True
 # Initialize the bot with the correct prefix and intents
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Global variable to keep track of the main message handling task
-message_relay_task = None
-
 
 async def send_webhook_message(webhook_url, content=None, embeds=None, username=None, avatar_url=None):
     async with aiohttp.ClientSession() as session:
@@ -280,4 +277,9 @@ async def about(interaction: discord.Interaction):
         await interaction.response.send_message("An error occurred while processing the command.", ephemeral=True)
 
 
-async def main
+async def main():
+    async with bot:
+        await bot.start(TOKEN)
+
+if __name__ == "__main__":
+    asyncio.run(main())
