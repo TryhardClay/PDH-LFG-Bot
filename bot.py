@@ -1,4 +1,3 @@
-# bot.py
 import discord
 import aiohttp
 import asyncio
@@ -87,10 +86,6 @@ async def delete_webhook(webhook_url):
 async def on_ready():
     logging.info(f'Logged in as {bot.user}')
     await bot.tree.sync()
-    global message_relay_task
-    # Start the message relay task in the background (if needed)
-    # if not message_relay_task:
-    #     message_relay_task = asyncio.create_task(message_relay_loop())
 
     # Load the lfg extension
     try:
@@ -138,7 +133,7 @@ async def setchannel(interaction: discord.Interaction, channel: discord.TextChan
         webhook = await channel.create_webhook(name="Cross-Server Bot Webhook")
         WEBHOOK_URLS[f'{interaction.guild.id}_{channel.id}'] = webhook.url
         CHANNEL_FILTERS[f'{interaction.guild.id}_{channel.id}'] = filter
-        
+
         # Save both WEBHOOK_URLS and CHANNEL_FILTERS to the JSON file
         with open('webhooks.json', 'w') as f:
             json.dump({'WEBHOOK_URLS': WEBHOOK_URLS, 'CHANNEL_FILTERS': CHANNEL_FILTERS}, f, indent=4)
@@ -205,15 +200,6 @@ async def resetconfig(interaction: discord.Interaction):
             await interaction.response.send_message("An error occurred while reloading the configuration.", ephemeral=True)
 
 
-# You can remove this loop if it's not being used
-# async def message_relay_loop():
-#     while True:
-#         try:
-#             await asyncio.sleep(1)
-#         except Exception as e:
-#             logging.error(f"Error in message relay loop: {e}")
-
-
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
@@ -245,13 +231,6 @@ async def on_message(message):
                         username=f"{message.author.name} from {message.guild.name}",
                         avatar_url=message.author.avatar.url if message.author.avatar else None
                     )
-
-    # (Consider removing reaction relaying if it's causing issues)
-    # for reaction in message.reactions:
-    #     try:
-    #         await reaction.message.add_reaction(reaction.emoji)
-    #     except discord.HTTPException as e:
-    #         logging.error(f"Error adding reaction: {e}")
 
 
 @bot.event
@@ -301,4 +280,4 @@ async def about(interaction: discord.Interaction):
         await interaction.response.send_message("An error occurred while processing the command.", ephemeral=True)
 
 
-bot.run(TOKEN)
+async def main
