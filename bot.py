@@ -71,20 +71,13 @@ async def setchannel(interaction: discord.Interaction, channel: discord.TextChan
         webhook = await channel.create_webhook(name="Cross-Server Bot Webhook")
         logging.info(f"Webhook created successfully: {webhook.url}")
 
-        # Store webhook data in webhooks.json (only store the webhook URL)
-        with open('webhooks.json', 'r+') as f:
-            try:
-                data = json.load(f)
-                if not isinstance(data, list):
-                    data = []
-            except json.JSONDecodeError:
-                data = []
-            data.append({
-                "webhook_url": webhook.url  # Store only the webhook URL
-            })
-            f.seek(0)
-            json.dump(data, f, indent=4)
-            f.truncate()
+        # Store only the webhook URL in WEBHOOK_URLS
+        WEBHOOK_URLS[f'{interaction.guild.id}_{channel.id}'] = webhook.url
+        CHANNEL_FILTERS[f'{interaction.guild.id}_{channel.id}'] = filter
+
+        # Store the updated WEBHOOK_URLS in webhooks.json
+        with open('webhooks.json', 'w') as f:
+            json.dump(WEBHOOK_URLS, f, indent=4)  # Store only WEBHOOK_URLS
 
         await interaction.followup.send(
             f"Cross-server communication channel set to {channel.mention} with filter '{filter}'.")
@@ -121,9 +114,11 @@ async def disconnect(interaction: discord.Interaction, channel: discord.TextChan
 async def listconnections(interaction: discord.Interaction):
     try:
         if WEBHOOK_URLS:
-            connections = "\n".join(
-                [f"- <#{channel.split('_')[1]}> in {client.get_guild(int(channel.split('_')[0])).name} (filter: {CHANNEL_FILTERS.get(channel, 'none')})" for
-                 channel in WEBHOOK_URLS])
+            # Correctly format the output for listconnections
+            connections = "\n".join([
+                f"- <#{channel.split('_')[1]}> in {client.get_guild(int(channel.split('_')[0])).name} (filter: {CHANNEL_FILTERS.get(channel, 'none')})"
+                for channel in WEBHOOK_URLS
+            ])
             await interaction.response.send_message(f"Connected channels:\n{connections}", ephemeral=True)
         else:
             await interaction.response.send_message("There are no connected channels.", ephemeral=True)
@@ -225,12 +220,12 @@ async def on_ready():
     logging.info(f'Logged in as {client.user}')
     
     try:
-        with open('webhooks.json', 'r') as f:  # Use webhooks.json
+        with open('webhooks.json', 'r') as f:
             WEBHOOK_URLS = json.load(f)  # Load only WEBHOOK_URLS from the file
     except FileNotFoundError:
-        logging.warning("webhooks.json not found. Starting with empty configuration.")  # Use webhooks.json
+        logging.warning("webhooks.json not found. Starting with empty configuration.")
     except json.JSONDecodeError as e:
-        logging.error(f"Error decoding webhooks.json: {e}")  # Use webhooks.json
+        logging.error(f"Error decoding webhooks.json: {e}")
     
     await client.tree.sync()
     asyncio.create_task(update_big_lfg())
