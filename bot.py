@@ -154,19 +154,34 @@ async def configreset(interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         await interaction.followup.send("An error occurred while resetting the configuration.")
 
-
 @client.tree.command(name="reloadconfig", description="Reload the bot's configuration.")
 @has_permissions(manage_channels=True)
 async def reloadconfig(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)  # Acknowledge the interaction first
     try:
-        global WEBHOOK_URLS, CHANNEL_FILTERS  # Add this line
+        global WEBHOOK_URLS, CHANNEL_FILTERS
         with open('webhooks.json', 'r') as f:
-            WEBHOOK_URLS = json.load(f)
+            try:
+                data = json.load(f)
+            except json.JSONDecodeError:
+                await interaction.followup.send("Error: `webhooks.json` is empty or corrupted.")
+                return
+
+            # Clear existing dictionaries
+            WEBHOOK_URLS = {}
+            CHANNEL_FILTERS = {}
+
+            # Populate dictionaries from loaded data
+            for item in data:
+                WEBHOOK_URLS[f"{item['guild_id']}_{item['channel_id']}"] = item['webhook_url']
+                CHANNEL_FILTERS[f"{item['guild_id']}_{item['channel_id']}"] = item['filter']
+
         await interaction.followup.send("Bot configuration reloaded.")
+
     except Exception as e:
         logging.error(f"Error reloading configuration: {e}")
         await interaction.followup.send("An error occurred while reloading the configuration.")
+
 
 @client.tree.command(name="about", description="Show information about the bot and its commands.")
 async def about(interaction: discord.Interaction):
