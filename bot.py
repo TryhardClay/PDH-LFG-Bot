@@ -314,35 +314,42 @@ async def biglfg(interaction: discord.Interaction):  # Removed the prompt parame
         message = None  # Initialize message to None
 
         # Send the embed to connected channels with matching filters
+        sent_message = False  # Flag to track if any message was sent
         for channel_id, webhook_url in WEBHOOK_URLS.items():
             channel_filter = CHANNEL_FILTERS.get(channel_id, 'none')
             if channel_filter == interaction.channel.id or channel_filter == 'none':
+                logging.info(f"Sending BigLFG prompt to channel: {channel_id}")  # Add logging
                 channel = client.get_channel(int(channel_id.split('_')[1]))
-                message = await channel.send(embed=embed)  # Assign value to message here
+                message = await channel.send(embed=embed)
                 await message.add_reaction("👍")
                 message_ids.append(f"{message.id}_{channel.id}")
+                sent_message = True
 
         # Store BigLFG data (now uses the message assigned in the loop or remains None)
-        if message is not None:  # Add this check to handle cases where no message was sent
-            big_lfg_data[message.id] = {  
-                "prompt": prompt,
-                "start_time": datetime.datetime.now(),
-                "timeout": datetime.timedelta(minutes=15),
-                "max_thumbs_up": 4,
-                "thumbs_up_count": 0,
-                "message_ids": message_ids
-            }
+        if sent_message:  # Check if any message was sent
+            if message is not None:
+                big_lfg_data[message.id] = {  
+                    "prompt": prompt,
+                    "start_time": datetime.datetime.now(),
+                    "timeout": datetime.timedelta(minutes=15),
+                    "max_thumbs_up": 4,
+                    "thumbs_up_count": 0,
+                    "message_ids": message_ids
+                }
+            else:
+                # This should ideally not happen, but handle it just in case
+                logging.error("Unexpected error: message is None even though a message was sent.")  
         else:
             # Handle the case where no message was sent
             logging.error("No message was sent in biglfg command.")
-            await interaction.response.send_message("Failed to send the BigLFG prompt.", ephemeral=True)
+            await interaction.followup.send("Failed to send the BigLFG prompt.")  # Use followup.send
 
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=True)  # Moved defer call to the end
         await interaction.followup.send(f"BigLFG prompt created.")
 
-    except Exception as e:  # Added this except block
-        logging.error(f"Error in biglfg command: {e}")
-        await interaction.response.send_message("An error occurred while creating the BigLFG prompt.", ephemeral=True)
+    except Exception as e:
+        logging.exception(f"Error in biglfg command: {e}")  # Use logging.exception for detailed error logs
+        await interaction.followup.send("An error occurred while creating the BigLFG prompt.")  # Use followup.send
 
 
 async def update_big_lfg():
