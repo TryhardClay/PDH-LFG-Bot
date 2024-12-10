@@ -66,10 +66,22 @@ async def setchannel(interaction: discord.Interaction, channel: discord.TextChan
             return
 
         webhook = await channel.create_webhook(name="Cross-Server Bot Webhook")
-        WEBHOOK_URLS[f'{interaction.guild.id}_{channel.id}'] = webhook.url
-        CHANNEL_FILTERS[f'{interaction.guild.id}_{channel.id}'] = filter
-        with open('webhooks.json', 'w') as f:
-            json.dump(WEBHOOK_URLS, f, indent=4)
+        # Store webhook data in webhooks.json
+        with open('webhooks.json', 'r+') as f:  # Use webhooks.json
+            try:
+                data = json.load(f)
+            except json.JSONDecodeError:
+                data = []
+            data.append({
+                "webhook_url": webhook.url,
+                "guild_id": interaction.guild.id,
+                "channel_id": channel.id,
+                "filter": filter
+            })
+            f.seek(0)
+            json.dump(data, f, indent=4)
+            f.truncate()
+
         await interaction.response.send_message(
             f"Cross-server communication channel set to {channel.mention} with filter '{filter}'.", ephemeral=True)
     except discord.Forbidden:
@@ -177,17 +189,47 @@ async def about(interaction: discord.Interaction):
 async def on_ready():
     global WEBHOOK_URLS, CHANNEL_FILTERS
     logging.info(f'Logged in as {client.user}')
+    
     try:
-        with open('webhooks.json', 'r') as f:
-            WEBHOOK_URLS = json.load(f)
+        with open('webhooks.json', 'r') as f:  # Use webhooks.json
+            data = json.load(f)
+            # Populate the dictionaries from the loaded data
+            for item in data:
+                WEBHOOK_URLS[f"{item['guild_id']}_{item['channel_id']}"] = item['webhook_url']
+                CHANNEL_FILTERS[f"{item['guild_id']}_{item['channel_id']}"] = item['filter']
     except FileNotFoundError:
-        logging.warning("webhooks.json not found. Starting with empty configuration.")
+        logging.warning("webhooks.json not found. Starting with empty configuration.")  # Use webhooks.json
     except json.JSONDecodeError as e:
-        logging.error(f"Error decoding webhooks.json: {e}")
+        logging.error(f"Error decoding webhooks.json: {e}")  # Use webhooks.json
+    
     await client.tree.sync()
-
-    # Start the BigLFG update task
     asyncio.create_task(update_big_lfg())
+
+
+@client.event
+async def on_guild_join(guild):
+    # Check if the bot already has a role in the server
+    bot_role = discord.utils.get(guild.roles, name=client.user.name)
+    if not bot_role:  # Only create a role if it doesn't exist
+        try:
+            bot_role = await guild.create_role(name=client.user.name, mentionable=True)
+            logging.info(f"Created role {bot_role.name} in server {guild.name}")
+            try:
+                await guild.me.add_roles(bot_role)
+                logging.info(f"Added role {bot_role.name} to the bot in server {guild.name}")
+            except discord.Forbidden:
+                logging.warning(f"Missing permissions to add role to the bot in server {guild.name}")
+        except discord.Forbidden:
+            logging.warning(f"Missing permissions to create role in server {guild.name}")
+
+    for channel in guild.text_channels:
+        try:
+            await channel.send("Hello! I'm your cross-server communication bot. "
+                               "An admin needs to use the `/setchannel` command to "
+                               "choose a channel for relaying messages.")
+            break
+        except discord.Forbidden:
+            continue
 
 
 @client.event
@@ -277,6 +319,7 @@ async def biglfg(interaction: discord.Interaction):  # Removed the prompt parame
         logging.error(f"Error in biglfg command: {e}")
         await interaction.response.send_message("An error occurred while creating the BigLFG prompt.", ephemeral=True)
 
+
 async def update_big_lfg():
     while True:
         await asyncio.sleep(5)  # Update every 5 seconds
@@ -306,12 +349,13 @@ async def update_big_lfg():
                         if reaction.emoji == "👍":
                             lfg_data["thumbs_up_count"] = reaction.count - 1
                             remaining_players = max(0, lfg_data["max_thumbs_up"] - lfg_data["thumbs_up_count"])
-                            new_prompt = lfg_data["prompt"]
-                            if remaining_players > 0:
-                                new_prompt = f"Waiting for {remaining_players} more players to join..."
+                            
+                            # Dynamically update the prompt
+                            new_prompt = f"Waiting for {remaining_players} more players to join..." 
                             embed = discord.Embed(title=new_prompt, description="React with 👍 to join!")
                             await message.edit(embed=embed)
                             break
+
                 except Exception as e:
                     logging.error(f"Error updating BigLFG: {e}")
 
