@@ -55,45 +55,26 @@ client = commands.Bot(command_prefix='/', intents=intents)
 @client.tree.command(name="setchannel", description="Set the channel for cross-server communication.")
 @has_permissions(manage_channels=True)
 async def setchannel(interaction: discord.Interaction, channel: discord.TextChannel, filter: str):
-    logging.info(f"Received /setchannel command in channel {channel.name}")
-    await interaction.response.defer(ephemeral=True)
     try:
         # Convert filter to lowercase for consistency
         filter = filter.lower()
-        logging.info(f"Filter set to: {filter}")
 
         # Check if the filter is valid
         if filter not in ("casual", "cpdh"):
-            await interaction.followup.send("Invalid filter. Please specify either 'casual' or 'cpdh'.")
+            await interaction.response.send_message("Invalid filter. Please specify either 'casual' or 'cpdh'.",
+                                                    ephemeral=True)
             return
 
-        logging.info(f"Creating webhook in channel {channel.name}")
         webhook = await channel.create_webhook(name="Cross-Server Bot Webhook")
-        logging.info(f"Webhook created successfully: {webhook.url}")
-
-        # Store webhook data in webhooks.json (only store the webhook URL)
-        with open('webhooks.json', 'r+') as f:
-            try:
-                data = json.load(f)
-                if not isinstance(data, list):
-                    data = []
-            except json.JSONDecodeError:
-                data = []
-            data.append({
-                "webhook_url": webhook.url  # Store only the webhook URL
-            })
-            f.seek(0)
-            json.dump(data, f, indent=4)
-            f.truncate()
-
-        await interaction.followup.send(
-            f"Cross-server communication channel set to {channel.mention} with filter '{filter}'.")
+        WEBHOOK_URLS[f'{interaction.guild.id}_{channel.id}'] = webhook.url
+        CHANNEL_FILTERS[f'{interaction.guild.id}_{channel.id}'] = filter
+        with open('webhooks.json', 'w') as f:
+            json.dump(WEBHOOK_URLS, f, indent=4)
+        await interaction.response.send_message(
+            f"Cross-server communication channel set to {channel.mention} with filter '{filter}'.", ephemeral=True)
     except discord.Forbidden:
-        logging.error("Permission denied while creating webhook.")
-        await interaction.followup.send("I don't have permission to create webhooks in that channel.")
-    except Exception as e:
-        logging.exception(f"An unexpected error occurred: {e}")
-        await interaction.followup.send("An error occurred while setting the channel.")
+        await interaction.response.send_message("I don't have permission to create webhooks in that channel.",
+                                                ephemeral=True)
 
 
 @client.tree.command(name="disconnect", description="Disconnect a channel from cross-server communication.")
@@ -121,10 +102,9 @@ async def disconnect(interaction: discord.Interaction, channel: discord.TextChan
 async def listconnections(interaction: discord.Interaction):
     try:
         if WEBHOOK_URLS:
-            connections = "\n".join([
-                f"- <#{channel.split('_')[1]}> in {client.get_guild(int(channel.split('_')[0])).name} (filter: {CHANNEL_FILTERS.get(channel, 'none')})"
-                for channel in WEBHOOK_URLS
-            ])
+            connections = "\n".join(
+                [f"- <#{channel.split('_')[1]}> in {client.get_guild(int(channel.split('_')[0])).name} (filter: {CHANNEL_FILTERS.get(channel, 'none')})" for
+                 channel in WEBHOOK_URLS])
             await interaction.response.send_message(f"Connected channels:\n{connections}", ephemeral=True)
         else:
             await interaction.response.send_message("There are no connected channels.", ephemeral=True)
@@ -153,49 +133,18 @@ async def configreset(interaction: discord.Interaction):
         await interaction.followup.send("An error occurred while resetting the configuration.")
 
 
-@client.tree.command(name="updateconfig", description="Update the bot's configuration (re-fetches webhooks).")
+@client.tree.command(name="reloadconfig", description="Reload the bot's configuration.")
 @has_permissions(manage_channels=True)
-async def updateconfig(interaction: discord.Interaction):
+async def reloadconfig(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)  # Acknowledge the interaction first
     try:
-        global WEBHOOK_URLS, CHANNEL_FILTERS
-        new_webhook_urls = {}
-        new_channel_filters = {}
-
+        global WEBHOOK_URLS, CHANNEL_FILTERS  # Add this line
         with open('webhooks.json', 'r') as f:
-            try:
-                data = json.load(f)
-            except json.JSONDecodeError:
-                await interaction.followup.send("Error: `webhooks.json` is empty or corrupted.")
-                return
-
-            # Re-fetch webhooks and populate dictionaries
-            for item in data:
-                try:
-                    channel = client.get_channel(item.get('channel_id'))  # Use .get() with a default value
-                    if channel is None:
-                        logging.warning(f"Channel not found for ID: {item.get('channel_id')}")
-                        continue
-
-                    webhook = await channel.fetch_webhook(int(item['webhook_url'].split('/')[-2]))
-                    new_webhook_urls[f"{item['guild_id']}_{item['channel_id']}"] = webhook.url
-                    new_channel_filters[f"{item['guild_id']}_{item['channel_id']}"] = item['filter']
-                    logging.info(f"Refreshed webhook for channel: {channel.name}")
-                except discord.NotFound:
-                    logging.warning(f"Webhook not found for channel ID: {item['channel_id']}")
-                except Exception as e:
-                    logging.error(f"Error refreshing webhook: {e}")
-
-        # Update global dictionaries
-        WEBHOOK_URLS = new_webhook_urls
-        CHANNEL_FILTERS = new_channel_filters
-
-        await interaction.followup.send("Bot configuration updated.")
-
+            WEBHOOK_URLS = json.load(f)
+        await interaction.followup.send("Bot configuration reloaded.")
     except Exception as e:
-        logging.error(f"Error updating configuration: {e}")
-        await interaction.followup.send("An error occurred while updating the configuration.")
-
+        logging.error(f"Error reloading configuration: {e}")
+        await interaction.followup.send("An error occurred while reloading the configuration.")
 
 @client.tree.command(name="about", description="Show information about the bot and its commands.")
 async def about(interaction: discord.Interaction):
@@ -212,8 +161,8 @@ async def about(interaction: discord.Interaction):
         embed.add_field(name="/listconnections", value="List all connected channels and their filters.", inline=False)
         embed.add_field(name="/configreset",  # Updated command name
                         value="Reset the bot's configuration (for debugging/development).", inline=False)
-        embed.add_field(name="/updateconfig",
-                        value="Update the bot's configuration.", inline=False)
+        embed.add_field(name="/reloadconfig",
+                        value="Reload the bot's configuration.", inline=False)
         embed.add_field(name="/biglfg",
                         value="Create a BigLFG prompt with reactions.", inline=False)
         embed.add_field(name="/about", value="Show this information.", inline=False)
@@ -228,16 +177,16 @@ async def about(interaction: discord.Interaction):
 async def on_ready():
     global WEBHOOK_URLS, CHANNEL_FILTERS
     logging.info(f'Logged in as {client.user}')
-    
     try:
         with open('webhooks.json', 'r') as f:
-            WEBHOOK_URLS = json.load(f)  # Load only WEBHOOK_URLS from the file
+            WEBHOOK_URLS = json.load(f)
     except FileNotFoundError:
         logging.warning("webhooks.json not found. Starting with empty configuration.")
     except json.JSONDecodeError as e:
         logging.error(f"Error decoding webhooks.json: {e}")
-    
     await client.tree.sync()
+
+    # Start the BigLFG update task
     asyncio.create_task(update_big_lfg())
 
 
@@ -298,7 +247,6 @@ async def on_message(message):
     source_channel_id = f'{message.guild.id}_{message.channel.id}'
 
     if source_channel_id in WEBHOOK_URLS:
-        logging.info(f"Relaying message from channel: {message.channel.name}")  # Log message relaying
         source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
 
         for destination_channel_id, webhook_url in WEBHOOK_URLS.items():
@@ -331,21 +279,26 @@ async def biglfg(interaction: discord.Interaction, prompt: str = "Waiting for 4 
                 message_ids.append(f"{message.id}_{channel.id}")
 
         # Store BigLFG data
-        big_lfg_data[message.id] = {  # Removed the check for message is not None
-            "prompt": prompt,
-            "start_time": datetime.datetime.now(),
-            "timeout": datetime.timedelta(minutes=15),  # 15-minute timeout
-            "max_thumbs_up": 4,
-            "thumbs_up_count": 0,
-            "message_ids": message_ids
-        }
+        if message is not None:  # Add this check
+            big_lfg_data[message.id] = {
+                "prompt": prompt,
+                "start_time": datetime.datetime.now(),
+                "timeout": datetime.timedelta(minutes=15),  # 15-minute timeout
+                "max_thumbs_up": 4,
+                "thumbs_up_count": 0,
+                "message_ids": message_ids
+            }
+        else:
+            # Handle the case where no message was sent (e.g., log an error or send a message to the user)
+            logging.error("No message was sent in biglfg command.")
+            await interaction.response.send_message("Failed to send the BigLFG prompt.", ephemeral=True)
 
-        await interaction.response.defer(ephemeral=True)  # Moved this line back to its original position
+        await interaction.response.defer(ephemeral=True)
         await interaction.followup.send(f"BigLFG prompt created with the following prompt: {prompt}")
 
     except Exception as e:
         logging.error(f"Error in biglfg command: {e}")
-        await interaction.followup.send("An error occurred while creating the BigLFG prompt.")
+        await interaction.response.send_message("An error occurred while creating the BigLFG prompt.", ephemeral=True)
 
 
 async def update_big_lfg():
