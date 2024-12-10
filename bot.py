@@ -238,42 +238,44 @@ async def on_message(message):
 
 # --- BigLFG feature ---
 @client.tree.command(name="biglfg", description="Create a BigLFG prompt with reactions.")
-async def biglfg(interaction: discord.Interaction, prompt: str = "Waiting for 4 more players to join..."):  # Set default prompt
+async def biglfg(interaction: discord.Interaction):  # Removed the prompt parameter
     try:
+        # Set the default prompt with the initial number of players
+        prompt = "Waiting for 4 more players to join..."  
         embed = discord.Embed(title=prompt, description="React with 👍 to join!")
         message_ids = []
+        message = None  # Initialize message to None
 
         # Send the embed to connected channels with matching filters
         for channel_id, webhook_url in WEBHOOK_URLS.items():
             channel_filter = CHANNEL_FILTERS.get(channel_id, 'none')
-            if channel_filter == interaction.channel.id or channel_filter == 'none':  # Check for matching filter or no filter
+            if channel_filter == interaction.channel.id or channel_filter == 'none':
                 channel = client.get_channel(int(channel_id.split('_')[1]))
-                message = await channel.send(embed=embed)
-                await message.add_reaction("👍")  # Add thumbs up reaction
+                message = await channel.send(embed=embed)  # Assign value to message here
+                await message.add_reaction("👍")
                 message_ids.append(f"{message.id}_{channel.id}")
 
-        # Store BigLFG data
-        if message is not None:  # Add this check
-            big_lfg_data[message.id] = {
+        # Store BigLFG data (now uses the message assigned in the loop or remains None)
+        if message is not None:  # Add this check to handle cases where no message was sent
+            big_lfg_data[message.id] = {  
                 "prompt": prompt,
                 "start_time": datetime.datetime.now(),
-                "timeout": datetime.timedelta(minutes=15),  # 15-minute timeout
+                "timeout": datetime.timedelta(minutes=15),
                 "max_thumbs_up": 4,
                 "thumbs_up_count": 0,
                 "message_ids": message_ids
             }
         else:
-            # Handle the case where no message was sent (e.g., log an error or send a message to the user)
+            # Handle the case where no message was sent
             logging.error("No message was sent in biglfg command.")
             await interaction.response.send_message("Failed to send the BigLFG prompt.", ephemeral=True)
 
         await interaction.response.defer(ephemeral=True)
-        await interaction.followup.send(f"BigLFG prompt created with the following prompt: {prompt}")
+        await interaction.followup.send(f"BigLFG prompt created.")
 
-    except Exception as e:
+    except Exception as e:  # Added this except block
         logging.error(f"Error in biglfg command: {e}")
         await interaction.response.send_message("An error occurred while creating the BigLFG prompt.", ephemeral=True)
-
 
 async def update_big_lfg():
     while True:
