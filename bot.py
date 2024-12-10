@@ -209,32 +209,42 @@ async def reloadconfig(interaction: discord.Interaction):
 
 # BigLFG command with timeout and "full" features
 @client.tree.command(name="biglfg", description="Create a BigLFG prompt with reactions.")
-async def biglfg(interaction: discord.Interaction, prompt: str):
-    embed = discord.Embed(title=prompt, description="React with 👍 to join!")
-    message_ids = []
+async def biglfg(interaction: discord.Interaction, prompt: str = "Waiting for 4 more players to join..."):  # Set default prompt
+    try:
+        embed = discord.Embed(title=prompt, description="React with 👍 to join!")
+        message_ids = []
 
-    # Send the embed to all connected channels
-    for channel_id in WEBHOOK_URLS:
-        channel = client.get_channel(int(channel_id.split('_')[1]))
-        message = await channel.send(embed=embed)
-        await message.add_reaction("👍")  # Add thumbs up reaction
-        message_ids.append(f"{message.id}_{channel.id}")
+        # Send the embed to connected channels with matching filters
+        for channel_id, webhook_url in WEBHOOK_URLS.items():
+            channel_filter = CHANNEL_FILTERS.get(channel_id, 'none')
+            if channel_filter == interaction.channel.id or channel_filter == 'none':  # Check for matching filter or no filter
+                channel = client.get_channel(int(channel_id.split('_')[1]))
+                message = await channel.send(embed=embed)
+                await message.add_reaction("👍")  # Add thumbs up reaction
+                message_ids.append(f"{message.id}_{channel.id}")
 
-    # Store BigLFG data
-    big_lfg_data[message.id] = {
-        "prompt": prompt,
-        "start_time": datetime.datetime.now(),
-        "timeout": datetime.timedelta(minutes=15),  # 15-minute timeout
-        "max_thumbs_up": 4,
-        "thumbs_up_count": 0,
-        "message_ids": message_ids
-    }
+        # Store BigLFG data
+        big_lfg_data[message.id] = {
+            "prompt": prompt,
+            "start_time": datetime.datetime.now(),
+            "timeout": datetime.timedelta(minutes=15),  # 15-minute timeout
+            "max_thumbs_up": 4,
+            "thumbs_up_count": 0,
+            "message_ids": message_ids
+        }
+
+        await interaction.response.defer(ephemeral=True)
+        await interaction.followup.send(f"BigLFG prompt created with the following prompt: {prompt}")
+
+    except Exception as e:
+        logging.error(f"Error in biglfg command: {e}")
+        await interaction.response.send_message("An error occurred while creating the BigLFG prompt.", ephemeral=True)
 
 
 async def update_big_lfg():
     while True:
         await asyncio.sleep(5)  # Update every 5 seconds
-        for lfg_id, lfg_data in big_lfg_data.copy().items():  # Use a copy to avoid errors when deleting
+        for lfg_id, lfg_data in big_lfg_data.copy().items():
             elapsed_time = datetime.datetime.now() - lfg_data["start_time"]
             if elapsed_time > lfg_data["timeout"]:
                 # Timeout reached, cancel the BigLFG
@@ -251,15 +261,21 @@ async def update_big_lfg():
                 del big_lfg_data[lfg_id]  # Remove from data
                 continue
 
-            # Update thumbs up count
+            # Update thumbs up count and update prompt
             for message_id in lfg_data["message_ids"]:
                 try:
                     channel = client.get_channel(int(message_id.split('_')[1]))
                     message = await channel.fetch_message(int(message_id.split('_')[0]))
                     for reaction in message.reactions:
                         if reaction.emoji == "👍":
-                            lfg_data["thumbs_up_count"] = reaction.count - 1  # Subtract 1 for the bot's reaction
-                            break  # No need to check other reactions
+                            lfg_data["thumbs_up_count"] = reaction.count - 1
+                            remaining_players = max(0, lfg_data["max_thumbs_up"] - lfg_data["thumbs_up_count"])
+                            new_prompt = lfg_data["prompt"]
+                            if remaining_players > 0:
+                                new_prompt = f"Waiting for {remaining_players} more players to join..."
+                            embed = discord.Embed(title=new_prompt, description="React with 👍 to join!")
+                            await message.edit(embed=embed)
+                            break
                 except Exception as e:
                     logging.error(f"Error updating BigLFG: {e}")
 
@@ -275,14 +291,6 @@ async def update_big_lfg():
                     except Exception as e:
                         logging.error(f"Error updating BigLFG: {e}")
                 del big_lfg_data[lfg_id]  # Remove from data
-
-
-async def message_relay_loop():
-    while True:
-        try:
-            await asyncio.sleep(1)
-        except Exception as e:
-            logging.error(f"Error in message relay loop: {e}")
 
 
 @client.event
