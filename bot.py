@@ -55,19 +55,24 @@ client = commands.Bot(command_prefix='/', intents=intents)
 @client.tree.command(name="setchannel", description="Set the channel for cross-server communication.")
 @has_permissions(manage_channels=True)
 async def setchannel(interaction: discord.Interaction, channel: discord.TextChannel, filter: str):
+    logging.info(f"Received /setchannel command in channel {channel.name}")  # Log command invocation
+    await interaction.response.defer(ephemeral=True)  # Defer the interaction to acknowledge it immediately
     try:
         # Convert filter to lowercase for consistency
         filter = filter.lower()
+        logging.info(f"Filter set to: {filter}")  # Log filter value
 
         # Check if the filter is valid
         if filter not in ("casual", "cpdh"):
-            await interaction.response.send_message("Invalid filter. Please specify either 'casual' or 'cpdh'.",
-                                                    ephemeral=True)
+            await interaction.followup.send("Invalid filter. Please specify either 'casual' or 'cpdh'.")
             return
 
+        logging.info(f"Creating webhook in channel {channel.name}")  # Log webhook creation attempt
         webhook = await channel.create_webhook(name="Cross-Server Bot Webhook")
+        logging.info(f"Webhook created successfully: {webhook.url}")  # Log successful webhook creation
+
         # Store webhook data in webhooks.json
-        with open('webhooks.json', 'r+') as f:  # Use webhooks.json
+        with open('webhooks.json', 'r+') as f:
             try:
                 data = json.load(f)
             except json.JSONDecodeError:
@@ -82,11 +87,14 @@ async def setchannel(interaction: discord.Interaction, channel: discord.TextChan
             json.dump(data, f, indent=4)
             f.truncate()
 
-        await interaction.response.send_message(
-            f"Cross-server communication channel set to {channel.mention} with filter '{filter}'.", ephemeral=True)
+        await interaction.followup.send(
+            f"Cross-server communication channel set to {channel.mention} with filter '{filter}'.")
     except discord.Forbidden:
-        await interaction.response.send_message("I don't have permission to create webhooks in that channel.",
-                                                ephemeral=True)
+        logging.error("Permission denied while creating webhook.")  # Log permission error
+        await interaction.followup.send("I don't have permission to create webhooks in that channel.")
+    except Exception as e:
+        logging.exception(f"An unexpected error occurred: {e}")  # Log any other exception
+        await interaction.followup.send("An error occurred while setting the channel.")
 
 
 @client.tree.command(name="disconnect", description="Disconnect a channel from cross-server communication.")
