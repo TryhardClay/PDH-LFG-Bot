@@ -71,19 +71,16 @@ async def setchannel(interaction: discord.Interaction, channel: discord.TextChan
         webhook = await channel.create_webhook(name="Cross-Server Bot Webhook")
         logging.info(f"Webhook created successfully: {webhook.url}")
 
-        # Store webhook data in webhooks.json
+        # Store webhook data in webhooks.json (only store the webhook URL)
         with open('webhooks.json', 'r+') as f:
             try:
-                data = json.load(f)  # Load the existing data
-                if not isinstance(data, list):  # If it's not a list, create an empty list
+                data = json.load(f)
+                if not isinstance(data, list):
                     data = []
             except json.JSONDecodeError:
-                data = []  # If the file is empty or invalid, create an empty list
-            data.append({  # Append a new dictionary to the list
-                "webhook_url": webhook.url,
-                "guild_id": interaction.guild.id,
-                "channel_id": channel.id,
-                "filter": filter
+                data = []
+            data.append({
+                "webhook_url": webhook.url  # Store only the webhook URL
             })
             f.seek(0)
             json.dump(data, f, indent=4)
@@ -194,6 +191,7 @@ async def updateconfig(interaction: discord.Interaction):
         logging.error(f"Error updating configuration: {e}")
         await interaction.followup.send("An error occurred while updating the configuration.")
 
+
 @client.tree.command(name="about", description="Show information about the bot and its commands.")
 async def about(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)  # Defer the interaction first
@@ -228,11 +226,7 @@ async def on_ready():
     
     try:
         with open('webhooks.json', 'r') as f:  # Use webhooks.json
-            data = json.load(f)
-            # Populate the dictionaries from the loaded data
-            for item in data:
-                WEBHOOK_URLS[f"{item['guild_id']}_{item['channel_id']}"] = item['webhook_url']
-                CHANNEL_FILTERS[f"{item['guild_id']}_{item['channel_id']}"] = item['filter']
+            WEBHOOK_URLS = json.load(f)  # Load only WEBHOOK_URLS from the file
     except FileNotFoundError:
         logging.warning("webhooks.json not found. Starting with empty configuration.")  # Use webhooks.json
     except json.JSONDecodeError as e:
