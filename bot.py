@@ -14,36 +14,12 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Access the token from the environment variable
 TOKEN = os.environ.get('TOKEN')
 
-WEBHOOK_URLS = {}  # Initialize as an empty dictionary
+# --- Global variables ---
+WEBHOOK_URLS = {}  # Dictionary to store webhook URLs
 CHANNEL_FILTERS = {}  # Dictionary to store channel filters
+big_lfg_data = {}  # Dictionary to store BigLFG data
 
-# Ensure webhooks.json exists and is valid JSON
-try:
-    with open('webhooks.json', 'r') as f:
-        WEBHOOK_URLS = json.load(f)
-except FileNotFoundError:
-    with open('webhooks.json', 'w') as f:
-        json.dump({}, f)
-except json.decoder.JSONDecodeError as e:
-    logging.error(f"Error decoding JSON from webhooks.json: {e}")
-    with open('webhooks.json', 'w') as f:
-        json.dump({}, f)
-
-# Define intents
-intents = discord.Intents.default()
-intents.message_content = True
-intents.guilds = True
-intents.members = True
-
-client = commands.Bot(command_prefix='/', intents=intents)
-
-# Global variable to keep track of the main message handling task
-message_relay_task = None
-
-# Dictionary to store BigLFG data
-big_lfg_data = {}
-
-
+# --- Helper functions ---
 async def send_webhook_message(webhook_url, content=None, embeds=None, username=None, avatar_url=None):
     async with aiohttp.ClientSession() as session:
         data = {}
@@ -68,6 +44,7 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
             logging.error(f"Error sending webhook message: {e}")
 
 
+# --- Events ---
 @client.event
 async def on_ready():
     global WEBHOOK_URLS, CHANNEL_FILTERS
@@ -111,6 +88,53 @@ async def on_guild_join(guild):
             continue
 
 
+@client.event
+async def on_guild_remove(guild):
+    try:
+        # Use client.user.name to get the exact role name
+        role_name = client.user.name
+        role = discord.utils.get(guild.roles, name=role_name)
+        if role:
+            await role.delete()
+            logging.info(f"Deleted role {role_name} from server {guild.name}")
+    except discord.Forbidden:
+        logging.warning(f"Missing permissions to delete role in server {guild.name}")
+    except discord.HTTPException as e:
+        logging.error(f"Error deleting role in server {guild.name}: {e}")
+
+
+@client.event
+async def on_message(message):
+    if message.author == client.user:
+        return
+
+    if message.webhook_id and message.author.id != client.user.id:
+        return
+
+    content = message.content
+    embeds = [embed.to_dict() for embed in message.embeds]
+    if message.attachments:
+        content += "\n" + "\n".join([attachment.url for attachment in message.attachments])
+
+    source_channel_id = f'{message.guild.id}_{message.channel.id}'
+
+    if source_channel_id in WEBHOOK_URLS:
+        source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
+
+        for destination_channel_id, webhook_url in WEBHOOK_URLS.items():
+            if source_channel_id != destination_channel_id:
+                destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
+
+                if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
+                    await send_webhook_message(
+                        webhook_url,
+                        content=content,
+                        embeds=embeds,
+                        username=f"{message.author.name} from {message.guild.name}",
+                        avatar_url=message.author.avatar.url if message.author.avatar else None
+                    )
+
+# --- Slash commands ---
 @client.tree.command(name="setchannel", description="Set the channel for cross-server communication.")
 @has_permissions(manage_channels=True)
 async def setchannel(interaction: discord.Interaction, channel: discord.TextChannel, filter: str):
@@ -172,7 +196,6 @@ async def listconnections(interaction: discord.Interaction):
         await interaction.response.send_message("An error occurred while listing connections.", ephemeral=True)
 
 
-# Configuration commands
 @client.tree.command(name="configreset", description="Reset the bot's configuration (for debugging/development).")
 @has_permissions(administrator=True)
 async def configreset(interaction: discord.Interaction):
@@ -198,7 +221,7 @@ async def configreset(interaction: discord.Interaction):
 async def reloadconfig(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)  # Acknowledge the interaction first
     try:
-        global WEBHOOK_URLS, CHANNEL_FILTERS
+        global WEBHOOK_URLS, CHANNEL_FILTERS  # Add this line
         with open('webhooks.json', 'r') as f:
             WEBHOOK_URLS = json.load(f)
         await interaction.followup.send("Bot configuration reloaded.")
@@ -206,8 +229,33 @@ async def reloadconfig(interaction: discord.Interaction):
         logging.error(f"Error reloading configuration: {e}")
         await interaction.followup.send("An error occurred while reloading the configuration.")
 
+@client.tree.command(name="about", description="Show information about the bot and its commands.")
+async def about(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)  # Defer the interaction first
+    try:
+        embed = discord.Embed(title="Cross-Server Communication Bot",
+                              description="This bot allows you to connect channels in different servers to relay messages and facilitate communication.",
+                              color=discord.Color.blue())
+        embed.add_field(name="/setchannel",
+                        value="Set a channel for cross-server communication and assign a filter ('casual' or 'cpdh').",
+                        inline=False)
+        embed.add_field(name="/disconnect", value="Disconnect a channel from cross-server communication.",
+                        inline=False)
+        embed.add_field(name="/listconnections", value="List all connected channels and their filters.", inline=False)
+        embed.add_field(name="/configreset",  # Updated command name
+                        value="Reset the bot's configuration (for debugging/development).", inline=False)
+        embed.add_field(name="/reloadconfig",
+                        value="Reload the bot's configuration.", inline=False)
+        embed.add_field(name="/biglfg",
+                        value="Create a BigLFG prompt with reactions.", inline=False)
+        embed.add_field(name="/about", value="Show this information.", inline=False)
 
-# BigLFG command with timeout and "full" features
+        await interaction.followup.send(embed=embed)  # Use followup.send
+    except Exception as e:
+        logging.error(f"Error in /about command: {e}")
+        await interaction.followup.send("An error occurred while processing the command.")
+
+# --- BigLFG feature ---
 @client.tree.command(name="biglfg", description="Create a BigLFG prompt with reactions.")
 async def biglfg(interaction: discord.Interaction, prompt: str = "Waiting for 4 more players to join..."):  # Set default prompt
     try:
@@ -293,78 +341,5 @@ async def update_big_lfg():
                 del big_lfg_data[lfg_id]  # Remove from data
 
 
-@client.event
-async def on_message(message):
-    if message.author == client.user:
-        return
-
-    if message.webhook_id and message.author.id != client.user.id:
-        return
-
-    content = message.content
-    embeds = [embed.to_dict() for embed in message.embeds]
-    if message.attachments:
-        content += "\n" + "\n".join([attachment.url for attachment in message.attachments])
-
-    source_channel_id = f'{message.guild.id}_{message.channel.id}'
-
-    if source_channel_id in WEBHOOK_URLS:
-        source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
-
-        for destination_channel_id, webhook_url in WEBHOOK_URLS.items():
-            if source_channel_id != destination_channel_id:
-                destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
-
-                if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
-                    await send_webhook_message(
-                        webhook_url,
-                        content=content,
-                        embeds=embeds,
-                        username=f"{message.author.name} from {message.guild.name}",
-                        avatar_url=message.author.avatar.url if message.author.avatar else None
-                    )
-
-
-@client.event
-async def on_guild_remove(guild):
-    try:
-        # Use client.user.name to get the exact role name
-        role_name = client.user.name
-        role = discord.utils.get(guild.roles, name=role_name)
-        if role:
-            await role.delete()
-            logging.info(f"Deleted role {role_name} from server {guild.name}")
-    except discord.Forbidden:
-        logging.warning(f"Missing permissions to delete role in server {guild.name}")
-    except discord.HTTPException as e:
-        logging.error(f"Error deleting role in server {guild.name}: {e}")
-
-
-@client.tree.command(name="about", description="Show information about the bot and its commands.")
-async def about(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)  # Defer the interaction first
-    try:
-        embed = discord.Embed(title="Cross-Server Communication Bot",
-                              description="This bot allows you to connect channels in different servers to relay messages and facilitate communication.",
-                              color=discord.Color.blue())
-        embed.add_field(name="/setchannel",
-                        value="Set a channel for cross-server communication and assign a filter ('casual' or 'cpdh').",
-                        inline=False)
-        embed.add_field(name="/disconnect", value="Disconnect a channel from cross-server communication.",
-                        inline=False)
-        embed.add_field(name="/listconnections", value="List all connected channels and their filters.", inline=False)
-        embed.add_field(name="/configreset",  # Updated command name
-                        value="Reset the bot's configuration (restricted to a specific server).", inline=False)
-        embed.add_field(name="/reloadconfig",
-                        value="Reload the bot's configuration.", inline=False)
-        embed.add_field(name="/biglfg",
-                        value="Create a BigLFG prompt with reactions.", inline=False)
-        embed.add_field(name="/about", value="Show this information.", inline=False)
-
-        await interaction.followup.send(embed=embed)  # Use followup.send
-    except Exception as e:
-        logging.error(f"Error in /about command: {e}")
-        await interaction.followup.send("An error occurred while processing the command.")
-
-
+# --- Main bot logic ---
 client.run(TOKEN)
