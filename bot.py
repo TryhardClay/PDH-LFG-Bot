@@ -311,51 +311,36 @@ async def on_message(message):
 
 # --- BigLFG feature ---
 @client.tree.command(name="biglfg", description="Create a BigLFG prompt with reactions.")
-async def biglfg(interaction: discord.Interaction):  # Removed the prompt parameter
+async def biglfg(interaction: discord.Interaction, prompt: str = "Waiting for 4 more players to join..."):  # Set default prompt
     try:
-        # Set the default prompt with the initial number of players
-        prompt = "Waiting for 4 more players to join..."  
         embed = discord.Embed(title=prompt, description="React with 👍 to join!")
         message_ids = []
-        message = None  # Initialize message to None
 
         # Send the embed to connected channels with matching filters
-        sent_message = False  # Flag to track if any message was sent
         for channel_id, webhook_url in WEBHOOK_URLS.items():
             channel_filter = CHANNEL_FILTERS.get(channel_id, 'none')
-            if channel_filter == interaction.channel.id or channel_filter == 'none':
-                logging.info(f"Sending BigLFG prompt to channel: {channel_id}")  # Add logging
+            if channel_filter == interaction.channel.id or channel_filter == 'none':  # Check for matching filter or no filter
                 channel = client.get_channel(int(channel_id.split('_')[1]))
                 message = await channel.send(embed=embed)
-                await message.add_reaction("👍")
+                await message.add_reaction("👍")  # Add thumbs up reaction
                 message_ids.append(f"{message.id}_{channel.id}")
-                sent_message = True
 
-        # Store BigLFG data (now uses the message assigned in the loop or remains None)
-        if sent_message:  # Check if any message was sent
-            if message is not None:
-                big_lfg_data[message.id] = {  
-                    "prompt": prompt,
-                    "start_time": datetime.datetime.now(),
-                    "timeout": datetime.timedelta(minutes=15),
-                    "max_thumbs_up": 4,
-                    "thumbs_up_count": 0,
-                    "message_ids": message_ids
-                }
-            else:
-                # This should ideally not happen, but handle it just in case
-                logging.error("Unexpected error: message is None even though a message was sent.")  
-        else:
-            # Handle the case where no message was sent
-            logging.error("No message was sent in biglfg command.")
-            await interaction.followup.send("Failed to send the BigLFG prompt.")  # Use followup.send
+        # Store BigLFG data
+        big_lfg_data[message.id] = {  # Removed the check for message is not None
+            "prompt": prompt,
+            "start_time": datetime.datetime.now(),
+            "timeout": datetime.timedelta(minutes=15),  # 15-minute timeout
+            "max_thumbs_up": 4,
+            "thumbs_up_count": 0,
+            "message_ids": message_ids
+        }
 
-        await interaction.response.defer(ephemeral=True)  # Moved defer call to the end
-        await interaction.followup.send(f"BigLFG prompt created.")
+        await interaction.response.defer(ephemeral=True)  # Moved this line back to its original position
+        await interaction.followup.send(f"BigLFG prompt created with the following prompt: {prompt}")
 
     except Exception as e:
-        logging.exception(f"Error in biglfg command: {e}")  # Use logging.exception for detailed error logs
-        await interaction.followup.send("An error occurred while creating the BigLFG prompt.")  # Use followup.send
+        logging.error(f"Error in biglfg command: {e}")
+        await interaction.followup.send("An error occurred while creating the BigLFG prompt.")
 
 
 async def update_big_lfg():
@@ -387,13 +372,12 @@ async def update_big_lfg():
                         if reaction.emoji == "👍":
                             lfg_data["thumbs_up_count"] = reaction.count - 1
                             remaining_players = max(0, lfg_data["max_thumbs_up"] - lfg_data["thumbs_up_count"])
-                            
-                            # Dynamically update the prompt
-                            new_prompt = f"Waiting for {remaining_players} more players to join..." 
+                            new_prompt = lfg_data["prompt"]
+                            if remaining_players > 0:
+                                new_prompt = f"Waiting for {remaining_players} more players to join..."
                             embed = discord.Embed(title=new_prompt, description="React with 👍 to join!")
                             await message.edit(embed=embed)
                             break
-
                 except Exception as e:
                     logging.error(f"Error updating BigLFG: {e}")
 
