@@ -43,6 +43,14 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
         except aiohttp.ClientError as e:
             logging.error(f"Error sending webhook message: {e}")
 
+# Define intents
+intents = discord.Intents.default()
+intents.message_content = True
+intents.guilds = True
+intents.members = True
+
+client = commands.Bot(command_prefix='/', intents=intents)
+
 
 # --- Slash commands ---
 @client.tree.command(name="setchannel", description="Set the channel for cross-server communication.")
