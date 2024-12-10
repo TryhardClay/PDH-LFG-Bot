@@ -154,12 +154,16 @@ async def configreset(interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         await interaction.followup.send("An error occurred while resetting the configuration.")
 
-@client.tree.command(name="reloadconfig", description="Reload the bot's configuration.")
+
+@client.tree.command(name="updateconfig", description="Update the bot's configuration (re-fetches webhooks).")
 @has_permissions(manage_channels=True)
-async def reloadconfig(interaction: discord.Interaction):
+async def updateconfig(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)  # Acknowledge the interaction first
     try:
         global WEBHOOK_URLS, CHANNEL_FILTERS
+        new_webhook_urls = {}
+        new_channel_filters = {}
+
         with open('webhooks.json', 'r') as f:
             try:
                 data = json.load(f)
@@ -167,21 +171,28 @@ async def reloadconfig(interaction: discord.Interaction):
                 await interaction.followup.send("Error: `webhooks.json` is empty or corrupted.")
                 return
 
-            # Clear existing dictionaries
-            WEBHOOK_URLS = {}
-            CHANNEL_FILTERS = {}
-
-            # Populate dictionaries from loaded data
+            # Re-fetch webhooks and populate dictionaries
             for item in data:
-                WEBHOOK_URLS[f"{item['guild_id']}_{item['channel_id']}"] = item['webhook_url']
-                CHANNEL_FILTERS[f"{item['guild_id']}_{item['channel_id']}"] = item['filter']
+                try:
+                    channel = client.get_channel(int(item['channel_id']))
+                    webhook = await channel.fetch_webhook(int(item['webhook_url'].split('/')[-2]))  # Extract webhook ID from URL
+                    new_webhook_urls[f"{item['guild_id']}_{item['channel_id']}"] = webhook.url
+                    new_channel_filters[f"{item['guild_id']}_{item['channel_id']}"] = item['filter']
+                    logging.info(f"Refreshed webhook for channel: {channel.name}")
+                except discord.NotFound:
+                    logging.warning(f"Webhook not found for channel ID: {item['channel_id']}")
+                except Exception as e:
+                    logging.error(f"Error refreshing webhook: {e}")
 
-        await interaction.followup.send("Bot configuration reloaded.")
+        # Update global dictionaries
+        WEBHOOK_URLS = new_webhook_urls
+        CHANNEL_FILTERS = new_channel_filters
+
+        await interaction.followup.send("Bot configuration updated.")
 
     except Exception as e:
-        logging.error(f"Error reloading configuration: {e}")
-        await interaction.followup.send("An error occurred while reloading the configuration.")
-
+        logging.error(f"Error updating configuration: {e}")
+        await interaction.followup.send("An error occurred while updating the configuration.")
 
 @client.tree.command(name="about", description="Show information about the bot and its commands.")
 async def about(interaction: discord.Interaction):
@@ -198,8 +209,8 @@ async def about(interaction: discord.Interaction):
         embed.add_field(name="/listconnections", value="List all connected channels and their filters.", inline=False)
         embed.add_field(name="/configreset",  # Updated command name
                         value="Reset the bot's configuration (for debugging/development).", inline=False)
-        embed.add_field(name="/reloadconfig",
-                        value="Reload the bot's configuration.", inline=False)
+        embed.add_field(name="/updateconfig",
+                        value="Update the bot's configuration.", inline=False)
         embed.add_field(name="/biglfg",
                         value="Create a BigLFG prompt with reactions.", inline=False)
         embed.add_field(name="/about", value="Show this information.", inline=False)
@@ -288,6 +299,7 @@ async def on_message(message):
     source_channel_id = f'{message.guild.id}_{message.channel.id}'
 
     if source_channel_id in WEBHOOK_URLS:
+        logging.info(f"Relaying message from channel: {message.channel.name}")  # Log message relaying
         source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
 
         for destination_channel_id, webhook_url in WEBHOOK_URLS.items():
