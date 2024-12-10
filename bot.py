@@ -71,13 +71,20 @@ async def setchannel(interaction: discord.Interaction, channel: discord.TextChan
         webhook = await channel.create_webhook(name="Cross-Server Bot Webhook")
         logging.info(f"Webhook created successfully: {webhook.url}")
 
-        # Store only the webhook URL in WEBHOOK_URLS
-        WEBHOOK_URLS[f'{interaction.guild.id}_{channel.id}'] = webhook.url
-        CHANNEL_FILTERS[f'{interaction.guild.id}_{channel.id}'] = filter
-
-        # Store the updated WEBHOOK_URLS in webhooks.json
-        with open('webhooks.json', 'w') as f:
-            json.dump(WEBHOOK_URLS, f, indent=4)  # Store only WEBHOOK_URLS
+        # Store webhook data in webhooks.json (only store the webhook URL)
+        with open('webhooks.json', 'r+') as f:
+            try:
+                data = json.load(f)
+                if not isinstance(data, list):
+                    data = []
+            except json.JSONDecodeError:
+                data = []
+            data.append({
+                "webhook_url": webhook.url  # Store only the webhook URL
+            })
+            f.seek(0)
+            json.dump(data, f, indent=4)
+            f.truncate()
 
         await interaction.followup.send(
             f"Cross-server communication channel set to {channel.mention} with filter '{filter}'.")
@@ -114,7 +121,6 @@ async def disconnect(interaction: discord.Interaction, channel: discord.TextChan
 async def listconnections(interaction: discord.Interaction):
     try:
         if WEBHOOK_URLS:
-            # Correctly format the output for listconnections
             connections = "\n".join([
                 f"- <#{channel.split('_')[1]}> in {client.get_guild(int(channel.split('_')[0])).name} (filter: {CHANNEL_FILTERS.get(channel, 'none')})"
                 for channel in WEBHOOK_URLS
@@ -166,8 +172,12 @@ async def updateconfig(interaction: discord.Interaction):
             # Re-fetch webhooks and populate dictionaries
             for item in data:
                 try:
-                    channel = client.get_channel(int(item['channel_id']))
-                    webhook = await channel.fetch_webhook(int(item['webhook_url'].split('/')[-2]))  # Extract webhook ID from URL
+                    channel = client.get_channel(item.get('channel_id'))  # Use .get() with a default value
+                    if channel is None:
+                        logging.warning(f"Channel not found for ID: {item.get('channel_id')}")
+                        continue
+
+                    webhook = await channel.fetch_webhook(int(item['webhook_url'].split('/')[-2]))
                     new_webhook_urls[f"{item['guild_id']}_{item['channel_id']}"] = webhook.url
                     new_channel_filters[f"{item['guild_id']}_{item['channel_id']}"] = item['filter']
                     logging.info(f"Refreshed webhook for channel: {channel.name}")
