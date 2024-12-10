@@ -191,32 +191,6 @@ async def on_ready():
 
 
 @client.event
-async def on_guild_join(guild):
-    # Check if the bot already has a role in the server
-    bot_role = discord.utils.get(guild.roles, name=client.user.name)
-    if not bot_role:  # Only create a role if it doesn't exist
-        try:
-            bot_role = await guild.create_role(name=client.user.name, mentionable=True)
-            logging.info(f"Created role {bot_role.name} in server {guild.name}")
-            try:
-                await guild.me.add_roles(bot_role)
-                logging.info(f"Added role {bot_role.name} to the bot in server {guild.name}")
-            except discord.Forbidden:
-                logging.warning(f"Missing permissions to add role to the bot in server {guild.name}")
-        except discord.Forbidden:
-            logging.warning(f"Missing permissions to create role in server {guild.name}")
-
-    for channel in guild.text_channels:
-        try:
-            await channel.send("Hello! I'm your cross-server communication bot. "
-                               "An admin needs to use the `/setchannel` command to "
-                               "choose a channel for relaying messages.")
-            break
-        except discord.Forbidden:
-            continue
-
-
-@client.event
 async def on_guild_remove(guild):
     try:
         # Use client.user.name to get the exact role name
