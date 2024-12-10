@@ -43,14 +43,6 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
         except aiohttp.ClientError as e:
             logging.error(f"Error sending webhook message: {e}")
 
-# Define intents
-intents = discord.Intents.default()
-intents.message_content = True
-intents.guilds = True
-intents.members = True
-
-client = commands.Bot(command_prefix='/', intents=intents)
-
 
 # --- Slash commands ---
 @client.tree.command(name="setchannel", description="Set the channel for cross-server communication.")
@@ -262,7 +254,6 @@ async def on_message(message):
                         username=f"{message.author.name} from {message.guild.name}",
                         avatar_url=message.author.avatar.url if message.author.avatar else None
                     )
-
 
 # --- BigLFG feature ---
 @client.tree.command(name="biglfg", description="Create a BigLFG prompt with reactions.")
