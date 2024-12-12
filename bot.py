@@ -133,18 +133,45 @@ async def configreset(interaction: discord.Interaction):
         await interaction.followup.send("An error occurred while resetting the configuration.")
 
 
-@client.tree.command(name="reloadconfig", description="Reload the bot's configuration.")
+@client.tree.command(name="updateconfig", description="Update the bot's configuration (re-fetches webhooks).")
 @has_permissions(manage_channels=True)
-async def reloadconfig(interaction: discord.Interaction):
+async def updateconfig(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)  # Acknowledge the interaction first
     try:
-        global WEBHOOK_URLS, CHANNEL_FILTERS  # Add this line
+        global WEBHOOK_URLS, CHANNEL_FILTERS
+        new_webhook_urls = {}
+        new_channel_filters = {}
+
         with open('webhooks.json', 'r') as f:
-            WEBHOOK_URLS = json.load(f)
-        await interaction.followup.send("Bot configuration reloaded.")
+            try:
+                data = json.load(f)
+            except json.JSONDecodeError:
+                await interaction.followup.send("Error: `webhooks.json` is empty or corrupted.")
+                return
+
+            # Re-fetch webhooks and populate dictionaries
+            for item in data:
+                try:
+                    channel = client.get_channel(int(item.get('channel_id')))
+                    webhook = await channel.fetch_webhook(int(item['webhook_url'].split('/')[-2]))
+                    new_webhook_urls[f"{item['guild_id']}_{item['channel_id']}"] = webhook.url
+                    new_channel_filters[f"{item['guild_id']}_{item['channel_id']}"] = item['filter']
+                    logging.info(f"Refreshed webhook for channel: {channel.name}")
+                except discord.NotFound:
+                    logging.warning(f"Webhook not found for channel ID: {item['channel_id']}")
+                except Exception as e:
+                    logging.error(f"Error refreshing webhook: {e}")
+
+        # Update global dictionaries
+        WEBHOOK_URLS = new_webhook_urls
+        CHANNEL_FILTERS = new_channel_filters
+
+        await interaction.followup.send("Bot configuration updated.")
+
     except Exception as e:
-        logging.error(f"Error reloading configuration: {e}")
-        await interaction.followup.send("An error occurred while reloading the configuration.")
+        logging.error(f"Error updating configuration: {e}")
+        await interaction.followup.send("An error occurred while updating the configuration.")
+
 
 @client.tree.command(name="about", description="Show information about the bot and its commands.")
 async def about(interaction: discord.Interaction):
@@ -161,8 +188,8 @@ async def about(interaction: discord.Interaction):
         embed.add_field(name="/listconnections", value="List all connected channels and their filters.", inline=False)
         embed.add_field(name="/configreset",  # Updated command name
                         value="Reset the bot's configuration (for debugging/development).", inline=False)
-        embed.add_field(name="/reloadconfig",
-                        value="Reload the bot's configuration.", inline=False)
+        embed.add_field(name="/updateconfig",
+                        value="Update the bot's configuration.", inline=False)
         embed.add_field(name="/biglfg",
                         value="Create a BigLFG prompt with reactions.", inline=False)
         embed.add_field(name="/about", value="Show this information.", inline=False)
@@ -279,26 +306,21 @@ async def biglfg(interaction: discord.Interaction, prompt: str = "Waiting for 4 
                 message_ids.append(f"{message.id}_{channel.id}")
 
         # Store BigLFG data
-        if message is not None:  # Add this check
-            big_lfg_data[message.id] = {
-                "prompt": prompt,
-                "start_time": datetime.datetime.now(),
-                "timeout": datetime.timedelta(minutes=15),  # 15-minute timeout
-                "max_thumbs_up": 4,
-                "thumbs_up_count": 0,
-                "message_ids": message_ids
-            }
-        else:
-            # Handle the case where no message was sent (e.g., log an error or send a message to the user)
-            logging.error("No message was sent in biglfg command.")
-            await interaction.response.send_message("Failed to send the BigLFG prompt.", ephemeral=True)
+        big_lfg_data[message.id] = {
+            "prompt": prompt,
+            "start_time": datetime.datetime.now(),
+            "timeout": datetime.timedelta(minutes=15),  # 15-minute timeout
+            "max_thumbs_up": 4,
+            "thumbs_up_count": 0,
+            "message_ids": message_ids
+        }
 
         await interaction.response.defer(ephemeral=True)
         await interaction.followup.send(f"BigLFG prompt created with the following prompt: {prompt}")
 
     except Exception as e:
         logging.error(f"Error in biglfg command: {e}")
-        await interaction.response.send_message("An error occurred while creating the BigLFG prompt.", ephemeral=True)
+        await interaction.followup.send("An error occurred while creating the BigLFG prompt.")
 
 
 async def update_big_lfg():
