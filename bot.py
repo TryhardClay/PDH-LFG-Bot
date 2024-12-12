@@ -55,26 +55,45 @@ client = commands.Bot(command_prefix='/', intents=intents)
 @client.tree.command(name="setchannel", description="Set the channel for cross-server communication.")
 @has_permissions(manage_channels=True)
 async def setchannel(interaction: discord.Interaction, channel: discord.TextChannel, filter: str):
+    logging.info(f"Received /setchannel command in channel {channel.name}")
+    await interaction.response.defer(ephemeral=True)
     try:
         # Convert filter to lowercase for consistency
         filter = filter.lower()
+        logging.info(f"Filter set to: {filter}")
 
         # Check if the filter is valid
         if filter not in ("casual", "cpdh"):
-            await interaction.response.send_message("Invalid filter. Please specify either 'casual' or 'cpdh'.",
-                                                    ephemeral=True)
+            await interaction.followup.send("Invalid filter. Please specify either 'casual' or 'cpdh'.")
             return
 
+        logging.info(f"Creating webhook in channel {channel.name}")
         webhook = await channel.create_webhook(name="Cross-Server Bot Webhook")
-        WEBHOOK_URLS[f'{interaction.guild.id}_{channel.id}'] = webhook.url
-        CHANNEL_FILTERS[f'{interaction.guild.id}_{channel.id}'] = filter
-        with open('webhooks.json', 'w') as f:
-            json.dump(WEBHOOK_URLS, f, indent=4)
-        await interaction.response.send_message(
-            f"Cross-server communication channel set to {channel.mention} with filter '{filter}'.", ephemeral=True)
+        logging.info(f"Webhook created successfully: {webhook.url}")
+
+        # Store webhook data in webhooks.json (only store the webhook URL)
+        with open('webhooks.json', 'r+') as f:
+            try:
+                data = json.load(f)
+                if not isinstance(data, list):
+                    data = []
+            except json.JSONDecodeError:
+                data = []
+            data.append({
+                "webhook_url": webhook.url  # Store only the webhook URL
+            })
+            f.seek(0)
+            json.dump(data, f, indent=4)
+            f.truncate()
+
+        await interaction.followup.send(
+            f"Cross-server communication channel set to {channel.mention} with filter '{filter}'.")
     except discord.Forbidden:
-        await interaction.response.send_message("I don't have permission to create webhooks in that channel.",
-                                                ephemeral=True)
+        logging.error("Permission denied while creating webhook.")
+        await interaction.followup.send("I don't have permission to create webhooks in that channel.")
+    except Exception as e:
+        logging.exception(f"An unexpected error occurred: {e}")
+        await interaction.followup.send("An error occurred while setting the channel.")
 
 
 @client.tree.command(name="disconnect", description="Disconnect a channel from cross-server communication.")
@@ -102,9 +121,10 @@ async def disconnect(interaction: discord.Interaction, channel: discord.TextChan
 async def listconnections(interaction: discord.Interaction):
     try:
         if WEBHOOK_URLS:
-            connections = "\n".join(
-                [f"- <#{channel.split('_')[1]}> in {client.get_guild(int(channel.split('_')[0])).name} (filter: {CHANNEL_FILTERS.get(channel, 'none')})" for
-                 channel in WEBHOOK_URLS])
+            connections = "\n".join([
+                f"- <#{channel.split('_')[1]}> in {client.get_guild(int(channel.split('_')[0])).name} (filter: {CHANNEL_FILTERS.get(channel, 'none')})"
+                for channel in WEBHOOK_URLS
+            ])
             await interaction.response.send_message(f"Connected channels:\n{connections}", ephemeral=True)
         else:
             await interaction.response.send_message("There are no connected channels.", ephemeral=True)
@@ -152,7 +172,11 @@ async def updateconfig(interaction: discord.Interaction):
             # Re-fetch webhooks and populate dictionaries
             for item in data:
                 try:
-                    channel = client.get_channel(int(item.get('channel_id')))
+                    channel = client.get_channel(item.get('channel_id'))  # Use .get() with a default value
+                    if channel is None:
+                        logging.warning(f"Channel not found for ID: {item.get('channel_id')}")
+                        continue
+
                     webhook = await channel.fetch_webhook(int(item['webhook_url'].split('/')[-2]))
                     new_webhook_urls[f"{item['guild_id']}_{item['channel_id']}"] = webhook.url
                     new_channel_filters[f"{item['guild_id']}_{item['channel_id']}"] = item['filter']
