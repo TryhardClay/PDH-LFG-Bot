@@ -153,49 +153,24 @@ async def configreset(interaction: discord.Interaction):
         await interaction.followup.send("An error occurred while resetting the configuration.")
 
 
-@client.tree.command(name="updateconfig", description="Update the bot's configuration (re-fetches webhooks).")
+@client.tree.command(name="updateconfig", description="Update the bot's configuration.")
 @has_permissions(manage_channels=True)
 async def updateconfig(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)  # Acknowledge the interaction first
     try:
         global WEBHOOK_URLS, CHANNEL_FILTERS
-        new_webhook_urls = {}
-        new_channel_filters = {}
-
         with open('webhooks.json', 'r') as f:
             try:
-                data = json.load(f)
+                WEBHOOK_URLS = json.load(f)  # Load only WEBHOOK_URLS from the file
             except json.JSONDecodeError:
                 await interaction.followup.send("Error: `webhooks.json` is empty or corrupted.")
                 return
-
-            # Re-fetch webhooks and populate dictionaries
-            for item in data:
-                try:
-                    channel = client.get_channel(item.get('channel_id'))  # Use .get() with a default value
-                    if channel is None:
-                        logging.warning(f"Channel not found for ID: {item.get('channel_id')}")
-                        continue
-
-                    webhook = await channel.fetch_webhook(int(item['webhook_url'].split('/')[-2]))
-                    new_webhook_urls[f"{item['guild_id']}_{item['channel_id']}"] = webhook.url
-                    new_channel_filters[f"{item['guild_id']}_{item['channel_id']}"] = item['filter']
-                    logging.info(f"Refreshed webhook for channel: {channel.name}")
-                except discord.NotFound:
-                    logging.warning(f"Webhook not found for channel ID: {item['channel_id']}")
-                except Exception as e:
-                    logging.error(f"Error refreshing webhook: {e}")
-
-        # Update global dictionaries
-        WEBHOOK_URLS = new_webhook_urls
-        CHANNEL_FILTERS = new_channel_filters
 
         await interaction.followup.send("Bot configuration updated.")
 
     except Exception as e:
         logging.error(f"Error updating configuration: {e}")
         await interaction.followup.send("An error occurred while updating the configuration.")
-
 
 @client.tree.command(name="about", description="Show information about the bot and its commands.")
 async def about(interaction: discord.Interaction):
@@ -210,15 +185,15 @@ async def about(interaction: discord.Interaction):
         embed.add_field(name="/disconnect", value="Disconnect a channel from cross-server communication.",
                         inline=False)
         embed.add_field(name="/listconnections", value="List all connected channels and their filters.", inline=False)
-        embed.add_field(name="/configreset",  # Updated command name
+        embed.add_field(name="/configreset",
                         value="Reset the bot's configuration (for debugging/development).", inline=False)
-        embed.add_field(name="/updateconfig",
+        embed.add_field(name="/updateconfig",  # Updated command name
                         value="Update the bot's configuration.", inline=False)
         embed.add_field(name="/biglfg",
                         value="Create a BigLFG prompt with reactions.", inline=False)
         embed.add_field(name="/about", value="Show this information.", inline=False)
 
-        await interaction.followup.send(embed=embed)  # Use followup.send
+        await interaction.followup.send(embed=embed)
     except Exception as e:
         logging.error(f"Error in /about command: {e}")
         await interaction.followup.send("An error occurred while processing the command.")
