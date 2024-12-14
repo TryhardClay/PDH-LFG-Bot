@@ -311,7 +311,7 @@ async def about(interaction: discord.Interaction):
 # BigLFG Commands
 # -------------------------------------------------------------------------
 
-@client.tree.command(name="biglfg", description="Create a BigLFG game.")
+@client.tree.command(name="biglfg")  # Removed description here
 async def biglfg(interaction: discord.Interaction):
     """
     Create a BigLFG game with the filter set to the current channel's filter.
