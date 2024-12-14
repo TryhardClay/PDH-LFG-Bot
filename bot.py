@@ -4,7 +4,7 @@ import asyncio
 import json
 import os
 import logging
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord.ext.commands import has_permissions
 
 # Set up logging
@@ -69,32 +69,35 @@ async def on_ready():
     logging.info(f'Logged in as {client.user}')
     await client.tree.sync()
     global message_relay_task
-    # Start the message relay task in the background
     if not message_relay_task:
         message_relay_task = asyncio.create_task(message_relay_loop())
+    # Start the role management task
+    role_management_task.start()
+
+@tasks.loop(seconds=60)  # Check every 60 seconds
+async def role_management_task():
+    for guild in client.guilds:
+        try:
+            # Check if the role exists
+            role = discord.utils.get(guild.roles, name="PDH LFG Bot")
+            if not role:
+                # Create the role if it doesn't exist
+                role = await guild.create_role(name="PDH LFG Bot", mentionable=True)
+                logging.info(f"Created role {role.name} in server {guild.name}")
+
+            # Ensure the bot has the role
+            if role not in guild.me.roles:
+                await guild.me.add_roles(role)
+                logging.info(f"Added role {role.name} to the bot in server {guild.name}")
+
+        except discord.Forbidden:
+            logging.warning(f"Missing permissions to manage roles in server {guild.name}")
+        except discord.HTTPException as e:
+            logging.error(f"Error managing role in server {guild.name}: {e}")
 
 
 @client.event
 async def on_guild_join(guild):
-    # Ensure the bot has the "Manage Roles" permission
-    if not guild.me.guild_permissions.manage_roles:
-        logging.warning(f"Missing 'Manage Roles' permission in server {guild.name}. Cannot create role.")
-        return
-
-    try:
-        # Create the role with the specific name
-        bot_role = await guild.create_role(name="PDH LFG Bot", mentionable=True)
-        logging.info(f"Created role {bot_role.name} in server {guild.name}")
-
-        try:
-            await guild.me.add_roles(bot_role)
-            logging.info(f"Added role {bot_role.name} to the bot in server {guild.name}")
-        except discord.Forbidden:
-            logging.warning(f"Missing permissions to add role to the bot in server {guild.name}")
-
-    except discord.HTTPException as e:
-        logging.error(f"Failed to create role in server {guild.name}: {e}")
-
     # Send the welcome message to a suitable channel
     for channel in guild.text_channels:
         if channel.permissions_for(guild.me).send_messages:
@@ -142,8 +145,9 @@ async def disconnect(interaction: discord.Interaction, channel: discord.TextChan
             del WEBHOOK_URLS[channel_id]
             with open('webhooks.json', 'w') as f:
                 json.dump(WEBHOOK_URLS, f, indent=4)
-            await interaction.response.send_message(f"Channel {channel.mention} disconnected from cross-server communication.",
-                                                    ephemeral=True)
+            await interaction.response.send_message(
+                f"Channel {channel.mention} disconnected from cross-server communication.",
+                ephemeral=True)
         else:
             await interaction.response.send_message(
                 f"Channel {channel.mention} is not connected to cross-server communication.", ephemeral=True)
@@ -187,7 +191,8 @@ async def resetconfig(interaction: discord.Interaction):
         if interaction.response.is_done():
             await interaction.followup.send("An error occurred while reloading the configuration.", ephemeral=True)
         else:
-            await interaction.response.send_message("An error occurred while reloading the configuration.", ephemeral=True)
+            await interaction.response.send_message("An error occurred while reloading the configuration.",
+                                                    ephemeral=True)
 
 
 async def message_relay_loop():
@@ -241,16 +246,8 @@ async def on_message(message):
 
 @client.event
 async def on_guild_remove(guild):
-    try:
-        # Find the role by its specific name
-        role = discord.utils.get(guild.roles, name="PDH LFG Bot")
-        if role:
-            await role.delete()
-            logging.info(f"Deleted role PDH LFG Bot from server {guild.name}")
-    except discord.Forbidden:
-        logging.warning(f"Missing permissions to delete role in server {guild.name}")
-    except discord.HTTPException as e:
-        logging.error(f"Error deleting role in server {guild.name}: {e}")
+    # This is now handled by the role_management_task
+    pass
 
 
 @client.tree.command(name="about", description="Show information about the bot and its commands.")
