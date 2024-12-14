@@ -377,7 +377,23 @@ def save_channel_filters():
 
 @tasks.loop(seconds=1)
 async def message_relay_loop():
-    # ... (Implement message relay logic)
+    # ... (Implement message relay logic) 
+    # This section needs your existing message relay logic from the old code
+    while True:
+        try:
+            await asyncio.sleep(1)  # Check for new messages every second
+            # ... (your existing message relay logic)
+
+        except discord.Forbidden as e:
+            if "Missing Permissions" in str(e):
+                # Assuming you can get the guild object from the message or context
+                await manage_role(guild)  # Trigger role management
+            else:
+                # Handle other Forbidden errors
+                ...
+        except Exception as e:
+            logging.error(f"Error in message relay loop: {e}")
+
 
 # Start the message relay loop
 message_relay_loop.start()
