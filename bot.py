@@ -116,13 +116,13 @@ async def on_message(message):
     if source_channel_id in WEBHOOK_URLS:
         source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
 
-        for destination_channel_id, webhook_url in WEBHOOK_URLS.items():
+        for destination_channel_id, webhook_data in WEBHOOK_URLS.items():  # Access webhook_data
             if source_channel_id != destination_channel_id:
                 destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
 
                 if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
                     await send_webhook_message(
-                        webhook_url,
+                        webhook_data['url'],  # Access the 'url' key
                         content=content,
                         embeds=embeds,
                         username=f"{message.author.name} from {message.guild.name}",
