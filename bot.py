@@ -76,16 +76,24 @@ async def on_ready():
 
 @client.event
 async def on_guild_join(guild):
+    # Ensure the bot has the "Manage Roles" permission
+    if not guild.me.guild_permissions.manage_roles:
+        logging.warning(f"Missing 'Manage Roles' permission in server {guild.name}. Cannot create role.")
+        return
+
     try:
-        bot_role = await guild.create_role(name=client.user.name, mentionable=True)
+        # Create the role with the specific name
+        bot_role = await guild.create_role(name="PDH LFG Bot", mentionable=True)
         logging.info(f"Created role {bot_role.name} in server {guild.name}")
+
         try:
             await guild.me.add_roles(bot_role)
             logging.info(f"Added role {bot_role.name} to the bot in server {guild.name}")
         except discord.Forbidden:
             logging.warning(f"Missing permissions to add role to the bot in server {guild.name}")
-    except discord.Forbidden:
-        logging.warning(f"Missing permissions to create role in server {guild.name}")
+
+    except discord.HTTPException as e:
+        logging.error(f"Failed to create role in server {guild.name}: {e}")
 
     # Send the welcome message to a suitable channel
     for channel in guild.text_channels:
@@ -234,11 +242,11 @@ async def on_message(message):
 @client.event
 async def on_guild_remove(guild):
     try:
-        role_name = client.user.name
-        role = discord.utils.get(guild.roles, name=role_name)
+        # Find the role by its specific name
+        role = discord.utils.get(guild.roles, name="PDH LFG Bot")
         if role:
             await role.delete()
-            logging.info(f"Deleted role {role_name} from server {guild.name}")
+            logging.info(f"Deleted role PDH LFG Bot from server {guild.name}")
     except discord.Forbidden:
         logging.warning(f"Missing permissions to delete role in server {guild.name}")
     except discord.HTTPException as e:
