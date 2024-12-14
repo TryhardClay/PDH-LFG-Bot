@@ -402,7 +402,7 @@ def save_channel_filters():
 # Message Relay Loop
 # -------------------------------------------------------------------------
 
-@tasks.loop(seconds=1)
+@tasks.loop(seconds=1)  # Use tasks.loop for periodic tasks
 async def message_relay_loop():
     while True:
         try:
@@ -419,7 +419,12 @@ async def message_relay_loop():
         except Exception as e:
             logging.error(f"Error in message relay loop: {e}")
 
-message_relay_loop.start()  # Start the message relay loop
+# Start the message relay loop after the bot is ready
+@client.event
+async def on_ready():
+    logging.info(f'Logged in as {client.user}')
+    await client.tree.sync()
+    message_relay_loop.start()  # Start the loop here
 
 # -------------------------------------------------------------------------
 # Run the Bot
