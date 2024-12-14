@@ -311,7 +311,7 @@ async def about(interaction: discord.Interaction):
 # BigLFG Commands
 # -------------------------------------------------------------------------
 
-@client.tree.command(name="biglfg")  # Removed description here
+@client.tree.command(name="biglfg")
 async def biglfg(interaction: discord.Interaction):
     """
     Create a BigLFG game with the filter set to the current channel's filter.
@@ -337,6 +337,9 @@ async def biglfg(interaction: discord.Interaction):
         view.add_item(join_button)
         view.add_item(leave_button)
 
+        # Store the message IDs of all sent embeds
+        sent_message_ids = []
+
         # Send the embed to all channels with matching filters
         for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
             if source_channel_id != destination_channel_id:
@@ -346,12 +349,14 @@ async def biglfg(interaction: discord.Interaction):
                     source_filter == 'none' or
                     destination_filter == 'none'):
                     try:
-                        await send_webhook_message(
+                        message = await send_webhook_message(
                             webhook_data['url'],
-                            embeds=[embed.to_dict()],  # Send the embed
+                            embeds=[embed.to_dict()],
                             username=f"{interaction.user.name} from {interaction.guild.name}",
                             avatar_url=interaction.user.avatar.url if interaction.user.avatar else None
                         )
+                        if message is not None:
+                            sent_message_ids.append(message.id)
                     except Exception as e:
                         logging.error(f"Error relaying embed: {e}")
 
@@ -376,6 +381,36 @@ async def on_interaction(interaction):
             # Handle leave logic here
             await interaction.response.send_message("You left the game!", ephemeral=True)
 
+# --- ADDED REACTION HANDLING LOGIC START ---
+@client.event
+async def on_raw_reaction_add(payload):
+    if payload.member.bot:
+        return
+
+    # Check if the reaction is on one of the sent embeds
+    if payload.message_id in sent_message_ids:
+        # Add the reaction to all other copies of the embed
+        for message_id in sent_message_ids:
+            if message_id != payload.message_id:
+                channel = client.get_channel(payload.channel_id)
+                message = await channel.fetch_message(message_id)
+                await message.add_reaction(payload.emoji)
+
+@client.event
+async def on_raw_reaction_remove(payload):
+    if payload.user_id == client.user.id:  # Ignore bot's own reactions
+        return
+
+    # Check if the reaction removal is on one of the sent embeds
+    if payload.message_id in sent_message_ids:
+        # Remove the reaction from all other copies of the embed
+        for message_id in sent_message_ids:
+            if message_id != payload.message_id:
+                channel = client.get_channel(payload.channel_id)
+                message = await channel.fetch_message(message_id)
+                await message.remove_reaction(payload.emoji, client.user)  # Remove bot's reaction
+# --- ADDED REACTION HANDLING LOGIC END ---
+
 # -------------------------------------------------------------------------
 # Helper Functions
 # -------------------------------------------------------------------------
@@ -398,7 +433,7 @@ def save_channel_filters():
 # Message Relay Loop
 # -------------------------------------------------------------------------
 
-@tasks.loop(seconds=1)  # Use tasks.loop for periodic tasks
+@tasks.loop(seconds=1)
 async def message_relay_loop():
     while True:
         try:
