@@ -383,7 +383,7 @@ async def biglfg(interaction: discord.Interaction):
             logging.error(f"Error during LFG process: {e}")
 
     except Exception as e:
-      logging.error(f"Error in /biglfg command: {e}")
+        logging.error(f"Error in /biglfg command: {e}")
         try:
             await interaction.followup.send("An error occurred while processing the LFG request.", ephemeral=True)
         except discord.HTTPException as e:
