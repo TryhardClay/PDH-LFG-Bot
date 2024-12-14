@@ -40,11 +40,12 @@ def load_webhook_data():
 WEBHOOK_URLS = load_webhook_data()
 CHANNEL_FILTERS = {}  # Dictionary to store channel filters
 
-# Define intents
+# Define intents (includes messages intent)
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
 intents.members = True
+intents.messages = True  # Added for caching messages
 
 client = commands.Bot(command_prefix='/', intents=intents)
 
@@ -70,9 +71,15 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
             async with session.post(webhook_url, json=data) as response:
                 if response.status == 204:
                     logging.info("Message sent successfully.")
+                    # Get the message ID from the response headers
+                    message_id = int(response.headers.get('Location').split('/')[-1])
+                    # Fetch the message object using the webhook and message ID
+                    webhook = discord.Webhook.from_url(webhook_url, session=session)
+                    message = await webhook.fetch_message(message_id)
+                    return message  # Return the message object
                 elif response.status == 429:
                     logging.warning("Rate limited!")
-                    # TODO: Implement more sophisticated rate limit handling
+                    # TODO: Implement rate limit handling (see Important Notes)
                 else:
                     logging.error(f"Failed to send message. Status code: {response.status}")
         except aiohttp.ClientError as e:
@@ -97,9 +104,9 @@ async def on_guild_join(guild):
         if channel.permissions_for(guild.me).send_messages:
             try:
                 await channel.send("Hello! I'm your cross-server communication bot. \n"
-                                   "An admin needs to use the `/setchannel` command to \n"
-                                   "choose a channel for relaying messages. \n"
-                                   "Be sure to select an appropriate filter; either 'cpdh' or 'casual'.")
+                                    "An admin needs to use the `/setchannel` command to \n"
+                                    "choose a channel for relaying messages. \n"
+                                    "Be sure to select an appropriate filter; either 'cpdh' or 'casual'.")
                 break  # Stop after sending the message once
             except discord.Forbidden:
                 pass  # Continue to the next channel if sending fails
@@ -191,7 +198,7 @@ async def setchannel(interaction: discord.Interaction, channel: discord.TextChan
         CHANNEL_FILTERS[f'{interaction.guild.id}_{channel.id}'] = filter
 
         # Save webhook data to persistent storage
-        save_webhook_data() 
+        save_webhook_data()
 
         await interaction.response.send_message(
             f"Cross-server communication channel set to {channel.mention} with filter '{filter}'.", ephemeral=True)
@@ -275,6 +282,77 @@ async def about(interaction: discord.Interaction):
     except Exception as e:
         logging.error(f"Error in /about command: {e}")
         await interaction.response.send_message("An error occurred while processing the command.", ephemeral=True)
+
+@client.tree.command(name="biglfg", description="Create a cross-server LFG request.")
+async def biglfg(interaction: discord.Interaction):
+    try:
+        await interaction.response.defer()  # Defer the response
+
+        source_channel_id = f'{interaction.guild.id}_{interaction.channel.id}'
+        source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
+
+        embed = discord.Embed(title="Looking for more players...", color=discord.Color.green())
+        embed.set_footer(text="React with 👍 to join! (4 players needed)")
+
+        sent_messages = {}
+
+        for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
+            if source_channel_id != destination_channel_id:
+                destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
+                if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
+                    try:
+                        message = await send_webhook_message(
+                            webhook_data['url'],
+                            embeds=[embed.to_dict()],
+                            username=f"{interaction.user.name} from {interaction.guild.name}",
+                            avatar_url=interaction.user.avatar.url if interaction.user.avatar else None
+                        )
+                        sent_messages[destination_channel_id] = message
+                        await message.add_reaction("👍")
+                    except Exception as e:
+                        logging.error(f"Error sending LFG request: {e}")
+
+        async def update_embed(message, players):
+            if len(players) == 4:
+                new_embed = discord.Embed(title="Your game is ready!", color=discord.Color.blue())
+                new_embed.add_field(name="Players:", value="\n".join(players), inline=False)
+            else:
+                new_embed = discord.Embed(title="This request has timed out.", color=discord.Color.red())
+            try:
+                await message.edit(embed=new_embed)
+            except discord.HTTPException as e:
+                logging.error(f"Error editing embed: {e}")
+
+        try:
+            players = []
+            for i in range(15 * 60):
+                for destination_channel_id, message in sent_messages.items():
+                    cache_msg = discord.utils.get(client.cached_messages, id=message.id)
+                    if cache_msg:
+                        for reaction in cache_msg.reactions:
+                            if str(reaction.emoji) == "👍":
+                                async for user in reaction.users():
+                                    if user != client.user and user.name not in players:
+                                        players.append(user.name)
+                                        if len(players) == 4:
+                                            await update_embed(message, players)
+                                            return
+
+                await asyncio.sleep(1)
+
+            for destination_channel_id, message in sent_messages.items():
+                await update_embed(message, players)
+
+        except Exception as e:
+            logging.error(f"Error during LFG process: {e}")
+
+    except Exception as e:
+        logging.error(f"Error in /biglfg command: {e}")
+        try:
+            await interaction.followup.send("An error occurred while processing the LFG request.", ephemeral=True)
+        except discord.HTTPException as e:
+            logging.error(f"Error sending error message: {e}")
+
 
 # -------------------------------------------------------------------------
 # Helper Functions
