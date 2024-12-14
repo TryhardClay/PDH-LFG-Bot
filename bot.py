@@ -1,5 +1,4 @@
 import discord
-import re
 import aiohttp
 import asyncio
 import json
@@ -85,12 +84,14 @@ async def on_guild_join(guild):
     except discord.Forbidden:
         logging.warning(f"Missing permissions to create role in server {guild.name}")
 
+    # Send the welcome message to the first available channel
     for channel in guild.text_channels:
         try:
-            await channel.send("Hello! I'm your cross-server communication bot. "
-                               "An admin needs to use the `/setchannel` command to "
-                               "choose a channel for relaying messages.")
-            break
+            await channel.send("Hello! I'm your cross-server communication bot. \n"
+                               "An admin needs to use the `/setchannel` command to \n"
+                               "choose a channel for relaying messages. \n"
+                               "Be sure to select an appropriate filter; either 'cpdh' or 'casual'.")
+            break  # Stop after sending the message once
         except discord.Forbidden:
             continue
 
@@ -168,7 +169,10 @@ async def resetconfig(interaction: discord.Interaction):
 async def message_relay_loop():
     while True:
         try:
-            await asyncio.sleep(1)
+            await asyncio.sleep(1) 
+            # This loop currently does nothing but sleep. 
+            # You'll likely want to add logic here for tasks that need 
+            # to run periodically in the background.
         except Exception as e:
             logging.error(f"Error in message relay loop: {e}")
 
@@ -203,11 +207,11 @@ async def on_message(message):
                         avatar_url=message.author.avatar.url if message.author.avatar else None
                     )
 
-        for reaction in message.reactions:
-            try:
-                await reaction.message.add_reaction(reaction.emoji)
-            except discord.HTTPException as e:
-                logging.error(f"Error adding reaction: {e}")
+    for reaction in message.reactions:
+        try:
+            await reaction.message.add_reaction(reaction.emoji)
+        except discord.HTTPException as e:
+            logging.error(f"Error adding reaction: {e}")
 
 @client.event
 async def on_guild_remove(guild):
