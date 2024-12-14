@@ -103,8 +103,7 @@ async def on_guild_join(guild):
         if channel.permissions_for(guild.me).send_messages:
             try:
                 await channel.send("Hello! I'm your cross-server communication bot. \n"
-                                   "An admin needs to use the `/setchannel` command to \n"
-                                   "choose a channel for relaying messages. \n"
+                                   "An admin needs to use the `/setchannel` command to choose a channel for relaying messages. \n"
                                    "Be sure to select an appropriate filter; either 'cpdh' or 'casual'.")
                 break  # Stop after sending the message once
             except discord.Forbidden:
