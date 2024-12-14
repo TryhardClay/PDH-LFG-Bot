@@ -314,17 +314,12 @@ async def about(interaction: discord.Interaction):
 @client.tree.command(name="biglfg")
 async def biglfg(interaction: discord.Interaction):
     """
-    Create a BigLFG game with the filter set to the current channel's filter.
+    Create a BigLFG game in all connected channels.
     """
     try:
         await interaction.response.defer()
 
-        source_channel_id = f'{interaction.guild.id}_{interaction.channel.id}'
-
-        # Get the filter of the source channel
-        source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
-
-        # Define the embed variable here
+        # Define the embed
         embed = discord.Embed(title="Looking for more players...", color=discord.Color.green())
         embed.set_footer(text="Click a button to join or leave! (4 players needed)")
 
@@ -340,25 +335,49 @@ async def biglfg(interaction: discord.Interaction):
         # Store the message IDs of all sent embeds
         sent_message_ids = []
 
-        # Send the embed to all channels with matching filters
-        for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
-            if source_channel_id != destination_channel_id:
-                destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
+        # Send the embed to all connected channels
+        for channel_id, webhook_data in WEBHOOK_URLS.items():
+            try:
+                message = await send_webhook_message(
+                    webhook_data['url'],
+                    embeds=[embed.to_dict()],
+                    username=f"{interaction.user.name} from {interaction.guild.name}",
+                    avatar_url=interaction.user.avatar.url if interaction.user.avatar else None
+                )
+                if message is not None:
+                    sent_message_ids.append(message.id)
+            except Exception as e:
+                logging.error(f"Error relaying embed: {e}")
 
-                if (source_filter == destination_filter or
-                    source_filter == 'none' or
-                    destination_filter == 'none'):
-                    try:
-                        message = await send_webhook_message(
-                            webhook_data['url'],
-                            embeds=[embed.to_dict()],
-                            username=f"{interaction.user.name} from {interaction.guild.name}",
-                            avatar_url=interaction.user.avatar.url if interaction.user.avatar else None
-                        )
-                        if message is not None:
-                            sent_message_ids.append(message.id)
-                    except Exception as e:
-                        logging.error(f"Error relaying embed: {e}")
+        # --- ADDED REACTION HANDLING LOGIC START ---
+        @client.event
+        async def on_raw_reaction_add(payload):
+            if payload.member.bot:
+                return
+
+            # Check if the reaction is on one of the sent embeds
+            if payload.message_id in sent_message_ids:
+                # Add the reaction to all other copies of the embed
+                for message_id in sent_message_ids:
+                    if message_id != payload.message_id:
+                        channel = client.get_channel(payload.channel_id)
+                        message = await channel.fetch_message(message_id)
+                        await message.add_reaction(payload.emoji)
+
+        @client.event
+        async def on_raw_reaction_remove(payload):
+            if payload.user_id == client.user.id:  # Ignore bot's own reactions
+                return
+
+            # Check if the reaction removal is on one of the sent embeds
+            if payload.message_id in sent_message_ids:
+                # Remove the reaction from all other copies of the embed
+                for message_id in sent_message_ids:
+                    if message_id != payload.message_id:
+                        channel = client.get_channel(payload.channel_id)
+                        message = await channel.fetch_message(message_id)
+                        await message.remove_reaction(payload.emoji, client.user)  # Remove bot's reaction
+        # --- ADDED REACTION HANDLING LOGIC END ---
 
     except Exception as e:
         logging.error(f"Error in /biglfg command: {e}")
