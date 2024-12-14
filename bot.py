@@ -6,7 +6,6 @@ import os
 import logging
 from discord.ext import commands
 from discord.ext.commands import has_permissions
-import datetime
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -17,7 +16,6 @@ TOKEN = os.environ.get('TOKEN')
 # --- Global variables ---
 WEBHOOK_URLS = {}  # Dictionary to store webhook URLs
 CHANNEL_FILTERS = {}  # Dictionary to store channel filters
-big_lfg_data = {}  # Dictionary to store BigLFG data
 
 # --- Helper functions ---
 async def send_webhook_message(webhook_url, content=None, embeds=None, username=None, avatar_url=None):
@@ -153,7 +151,7 @@ async def configreset(interaction: discord.Interaction):
         await interaction.followup.send("An error occurred while resetting the configuration.")
 
 
-@client.tree.command(name="updateconfig", description="Update the bot's configuration.")
+@client.tree.command(name="updateconfig", description="Update the bot's configuration (re-fetches webhooks).")
 @has_permissions(manage_channels=True)
 async def updateconfig(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)  # Acknowledge the interaction first
@@ -189,9 +187,7 @@ async def about(interaction: discord.Interaction):
                         value="Reset the bot's configuration (for debugging/development).", inline=False)
         embed.add_field(name="/updateconfig",  # Updated command name
                         value="Update the bot's configuration.", inline=False)
-        embed.add_field(name="/biglfg",
-                        value="Create a BigLFG prompt with reactions.", inline=False)
-        embed.add_field(name="/about", value="Show this information.", inline=False)
+        embed.add_field(name="/about", value="Show this information.", inline=False)  # Removed /biglfg
 
         await interaction.followup.send(embed=embed)
     except Exception as e:
@@ -213,166 +209,11 @@ async def on_ready():
     await client.tree.sync()
 
     # Start the BigLFG update task
-    asyncio.create_task(update_big_lfg())
+    # asyncio.create_task(update_big_lfg())  # Removed for now
 
+# ... (rest of the events) ...
 
-@client.event
-async def on_guild_join(guild):
-    # Check if the bot already has a role in the server
-    bot_role = discord.utils.get(guild.roles, name=client.user.name)
-    if not bot_role:  # Only create a role if it doesn't exist
-        try:
-            bot_role = await guild.create_role(name=client.user.name, mentionable=True)
-            logging.info(f"Created role {bot_role.name} in server {guild.name}")
-            try:
-                await guild.me.add_roles(bot_role)
-                logging.info(f"Added role {bot_role.name} to the bot in server {guild.name}")
-            except discord.Forbidden:
-                logging.warning(f"Missing permissions to add role to the bot in server {guild.name}")
-        except discord.Forbidden:
-            logging.warning(f"Missing permissions to create role in server {guild.name}")
-
-    for channel in guild.text_channels:
-        try:
-            await channel.send("Hello! I'm your cross-server communication bot. "
-                               "An admin needs to use the `/setchannel` command to "
-                               "choose a channel for relaying messages.")
-            break
-        except discord.Forbidden:
-            continue
-
-
-@client.event
-async def on_guild_remove(guild):
-    try:
-        # Use client.user.name to get the exact role name
-        role_name = client.user.name
-        role = discord.utils.get(guild.roles, name=role_name)
-        if role:
-            await role.delete()
-            logging.info(f"Deleted role {role_name} from server {guild.name}")
-    except discord.Forbidden:
-        logging.warning(f"Missing permissions to delete role in server {guild.name}")
-    except discord.HTTPException as e:
-        logging.error(f"Error deleting role in server {guild.name}: {e}")
-
-
-@client.event
-async def on_message(message):
-    if message.author == client.user:
-        return
-
-    if message.webhook_id and message.author.id != client.user.id:
-        return
-
-    content = message.content
-    embeds = [embed.to_dict() for embed in message.embeds]
-    if message.attachments:
-        content += "\n" + "\n".join([attachment.url for attachment in message.attachments])
-
-    source_channel_id = f'{message.guild.id}_{message.channel.id}'
-
-    if source_channel_id in WEBHOOK_URLS:
-        source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
-
-        for destination_channel_id, webhook_url in WEBHOOK_URLS.items():
-            if source_channel_id != destination_channel_id:
-                destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
-
-                if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
-                    await send_webhook_message(
-                        webhook_url,
-                        content=content,
-                        embeds=embeds,
-                        username=f"{message.author.name} from {message.guild.name}",
-                        avatar_url=message.author.avatar.url if message.author.avatar else None
-                    )
-
-# --- BigLFG feature ---
-@client.tree.command(name="biglfg", description="Create a BigLFG prompt with reactions.")
-async def biglfg(interaction: discord.Interaction, prompt: str = "Waiting for 4 more players to join..."):  # Set default prompt
-    try:
-        embed = discord.Embed(title=prompt, description="React with 👍 to join!")
-        message_ids = []
-
-        # Send the embed to connected channels with matching filters
-        for channel_id, webhook_url in WEBHOOK_URLS.items():
-            channel_filter = CHANNEL_FILTERS.get(channel_id, 'none')
-            if channel_filter == interaction.channel.id or channel_filter == 'none':  # Check for matching filter or no filter
-                channel = client.get_channel(int(channel_id.split('_')[1]))
-                message = await channel.send(embed=embed)
-                await message.add_reaction("👍")  # Add thumbs up reaction
-                message_ids.append(f"{message.id}_{channel.id}")
-
-        # Store BigLFG data
-        big_lfg_data[message.id] = {
-            "prompt": prompt,
-            "start_time": datetime.datetime.now(),
-            "timeout": datetime.timedelta(minutes=15),  # 15-minute timeout
-            "max_thumbs_up": 4,
-            "thumbs_up_count": 0,
-            "message_ids": message_ids
-        }
-
-        await interaction.response.defer(ephemeral=True)
-        await interaction.followup.send(f"BigLFG prompt created with the following prompt: {prompt}")
-
-    except Exception as e:
-        logging.error(f"Error in biglfg command: {e}")
-        await interaction.followup.send("An error occurred while creating the BigLFG prompt.")
-
-
-async def update_big_lfg():
-    while True:
-        await asyncio.sleep(5)  # Update every 5 seconds
-        for lfg_id, lfg_data in big_lfg_data.copy().items():
-            elapsed_time = datetime.datetime.now() - lfg_data["start_time"]
-            if elapsed_time > lfg_data["timeout"]:
-                # Timeout reached, cancel the BigLFG
-                embed = discord.Embed(title=lfg_data["prompt"],
-                                      description="This request has been cancelled due to inactivity.")
-                for message_id in lfg_data["message_ids"]:
-                    try:
-                        channel = client.get_channel(int(message_id.split('_')[1]))
-                        message = await channel.fetch_message(int(message_id.split('_')[0]))
-                        await message.edit(embed=embed)
-                        await message.clear_reactions()
-                    except Exception as e:
-                        logging.error(f"Error cancelling BigLFG: {e}")
-                del big_lfg_data[lfg_id]  # Remove from data
-                continue
-
-            # Update thumbs up count and update prompt
-            for message_id in lfg_data["message_ids"]:
-                try:
-                    channel = client.get_channel(int(message_id.split('_')[1]))
-                    message = await channel.fetch_message(int(message_id.split('_')[0]))
-                    for reaction in message.reactions:
-                        if reaction.emoji == "👍":
-                            lfg_data["thumbs_up_count"] = reaction.count - 1
-                            remaining_players = max(0, lfg_data["max_thumbs_up"] - lfg_data["thumbs_up_count"])
-                            new_prompt = lfg_data["prompt"]
-                            if remaining_players > 0:
-                                new_prompt = f"Waiting for {remaining_players} more players to join..."
-                            embed = discord.Embed(title=new_prompt, description="React with 👍 to join!")
-                            await message.edit(embed=embed)
-                            break
-                except Exception as e:
-                    logging.error(f"Error updating BigLFG: {e}")
-
-            # Check if full
-            if lfg_data["thumbs_up_count"] >= lfg_data["max_thumbs_up"]:
-                embed = discord.Embed(title=lfg_data["prompt"], description="This game is full!")
-                for message_id in lfg_data["message_ids"]:
-                    try:
-                        channel = client.get_channel(int(message_id.split('_')[1]))
-                        message = await channel.fetch_message(int(message_id.split('_')[0]))
-                        await message.edit(embed=embed)
-                        await message.clear_reactions()
-                    except Exception as e:
-                        logging.error(f"Error updating BigLFG: {e}")
-                del big_lfg_data[lfg_id]  # Remove from data
-
+# --- BigLFG feature --- (Removed for now)
 
 # --- Main bot logic ---
 client.run(TOKEN)
