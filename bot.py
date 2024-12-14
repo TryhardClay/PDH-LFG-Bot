@@ -335,7 +335,7 @@ async def biglfg(interaction: discord.Interaction):
     pass  # This is just a placeholder for the subcommands
 
 # Define biglfg create as a regular function
-def biglfg_create(interaction: discord.Interaction, filter: str):
+async def biglfg_create(interaction: discord.Interaction, filter: str):  # Make this function async
     try:
         await interaction.response.defer()
 
@@ -343,6 +343,18 @@ def biglfg_create(interaction: discord.Interaction, filter: str):
         source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
 
         # ... (rest of your biglfg_create command logic) ...
+
+        # Create buttons
+        join_button = discord.ui.Button(label="Join", style=discord.ButtonStyle.green, custom_id="join_button")
+        leave_button = discord.ui.Button(label="Leave", style=discord.ButtonStyle.red, custom_id="leave_button")
+
+        # Create a View to hold the buttons
+        view = discord.ui.View()
+        view.add_item(join_button)
+        view.add_item(leave_button)
+
+        # Send the embed with the buttons
+        await interaction.followup.send(embed=embed, view=view)
 
     except Exception as e:
         logging.error(f"Error in /biglfg create command: {e}")
@@ -354,7 +366,19 @@ def biglfg_create(interaction: discord.Interaction, filter: str):
 # Register the subcommand
 client.tree.command(name="create", description="/biglfg create", function=biglfg_create)
 
-# ... (Add biglfg join and biglfg leave commands similarly) ...
+# -------------------------------------------------------------------------
+# Event Handlers for Buttons
+# -------------------------------------------------------------------------
+
+@client.event
+async def on_interaction(interaction):
+    if interaction.type == discord.InteractionType.component:
+        if interaction.data['custom_id'] == "join_button":
+            # Handle join logic here
+            await interaction.response.send_message("You joined the game!", ephemeral=True)
+        elif interaction.data['custom_id'] == "leave_button":
+            # Handle leave logic here
+            await interaction.response.send_message("You left the game!", ephemeral=True)
 
 # -------------------------------------------------------------------------
 # Helper Functions
@@ -380,8 +404,6 @@ def save_channel_filters():
 
 @tasks.loop(seconds=1)
 async def message_relay_loop():
-    # ... (Implement message relay logic) 
-    # This section needs your existing message relay logic from the old code
     while True:
         try:
             await asyncio.sleep(1)  # Check for new messages every second
@@ -397,9 +419,7 @@ async def message_relay_loop():
         except Exception as e:
             logging.error(f"Error in message relay loop: {e}")
 
-
-# Start the message relay loop
-message_relay_loop.start()
+message_relay_loop.start()  # Start the message relay loop
 
 # -------------------------------------------------------------------------
 # Run the Bot
