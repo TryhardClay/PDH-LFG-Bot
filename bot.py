@@ -71,19 +71,71 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
             async with session.post(webhook_url, json=data) as response:
                 if response.status == 204:
                     logging.info("Message sent successfully.")
-                    # Get the message ID from the response headers
-                    message_id = int(response.headers.get('Location').split('/')[-1])
-                    # Fetch the message object using the webhook and message ID
-                    webhook = discord.Webhook.from_url(webhook_url, session=session)
-                    message = await webhook.fetch_message(message_id)
-                    return message  # Return the message object
+                    
+                    location = response.headers.get('Location')
+                    if location:
+                        message_id = int(location.split('/')[-1])
+                        webhook = discord.Webhook.from_url(webhook_url, session=session)
+                        message = await webhook.fetch_message(message_id)
+                    else:
+                        logging.error(f"Missing 'Location' header in response: {response}")
+                        return None 
+
+                    return message
                 elif response.status == 429:
                     logging.warning("Rate limited!")
-                    # TODO: Implement rate limit handling (see Important Notes)
+                    # TODO: Implement rate limit handling
                 else:
                     logging.error(f"Failed to send message. Status code: {response.status}")
         except aiohttp.ClientError as e:
             logging.error(f"Error sending webhook message: {e}")
+
+
+@client.event
+async def on_message(message):
+    if message.author == client.user:
+        return
+
+    if message.webhook_id and message.author.id != client.user.id:
+        return
+
+    content = message.content
+    embeds = [embed.to_dict() for embed in message.embeds]
+    if message.attachments:
+        content += "\n" + "\n".join([attachment.url for attachment in message.attachments])
+
+    source_channel_id = f'{message.guild.id}_{message.channel.id}'
+
+    if source_channel_id in WEBHOOK_URLS:
+        source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
+
+        for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
+            if source_channel_id != destination_channel_id:
+                destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
+
+                if (source_filter == destination_filter or 
+                    source_filter == 'none' or 
+                    destination_filter == 'none'):
+                    try:
+                        message = await send_webhook_message(
+                            webhook_data['url'],
+                            content=content,
+                            embeds=embeds,
+                            username=f"{message.author.name} from {message.guild.name}",
+                            avatar_url=message.author.avatar.url if message.author.avatar else None
+                        )
+                        if message is None:
+                            logging.error(f"Failed to send message to {destination_channel_id}")
+                            continue  # Skip to the next destination
+
+                        for reaction in message.reactions:
+                            try:
+                                await reaction.message.add_reaction(reaction.emoji)
+                            except discord.HTTPException as e:
+                                logging.error(f"Error adding reaction: {e}")
+
+                    except Exception as e:
+                        logging.error(f"Error relaying message: {e}")
 
 # -------------------------------------------------------------------------
 # Event Handlers
