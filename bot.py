@@ -69,6 +69,10 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
             data['avatar_url'] = avatar_url
         try:
             async with session.post(webhook_url, json=data) as response:
+                # Log the full response object and headers for debugging
+                logging.info(f"Full response: {response}")
+                logging.info(f"Response headers: {response.headers}")
+
                 if response.status == 204:
                     logging.info("Message sent successfully.")
                     
@@ -89,7 +93,6 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
                     logging.error(f"Failed to send message. Status code: {response.status}")
         except aiohttp.ClientError as e:
             logging.error(f"Error sending webhook message: {e}")
-
 
 @client.event
 async def on_message(message):
