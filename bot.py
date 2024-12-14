@@ -337,8 +337,23 @@ async def biglfg(interaction: discord.Interaction):
         view.add_item(join_button)
         view.add_item(leave_button)
 
-        # Send the embed with the buttons
-        await interaction.followup.send(embed=embed, view=view)
+        # Send the embed to all channels with matching filters
+        for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
+            if source_channel_id != destination_channel_id:
+                destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
+
+                if (source_filter == destination_filter or
+                    source_filter == 'none' or
+                    destination_filter == 'none'):
+                    try:
+                        await send_webhook_message(
+                            webhook_data['url'],
+                            embeds=[embed.to_dict()],  # Send the embed
+                            username=f"{interaction.user.name} from {interaction.guild.name}",
+                            avatar_url=interaction.user.avatar.url if interaction.user.avatar else None
+                        )
+                    except Exception as e:
+                        logging.error(f"Error relaying embed: {e}")
 
     except Exception as e:
         logging.error(f"Error in /biglfg command: {e}")
