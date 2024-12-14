@@ -343,6 +343,10 @@ async def biglfg(interaction: discord.Interaction):
                             username=f"{interaction.user.name} from {interaction.guild.name}",
                             avatar_url=interaction.user.avatar.url if interaction.user.avatar else None
                         )
+                        if message is None:  # Check if message sending failed
+                            logging.error(f"Failed to send LFG request to {destination_channel_id}")
+                            continue  # Skip to the next channel
+
                         sent_messages[destination_channel_id] = message
                         await message.add_reaction("👍")
                     except Exception as e:
@@ -363,21 +367,24 @@ async def biglfg(interaction: discord.Interaction):
             players = []
             for i in range(15 * 60):
                 for destination_channel_id, message in sent_messages.items():
-                    cache_msg = discord.utils.get(client.cached_messages, id=message.id)
-                    if cache_msg:
-                        for reaction in cache_msg.reactions:
-                            if str(reaction.emoji) == "👍":
-                                async for user in reaction.users():
-                                    if user != client.user and user.name not in players:
-                                        players.append(user.name)
-                                        if len(players) == 4:
-                                            await update_embed(message, players)
-                                            return
+                    # Ensure message is not None before accessing its attributes
+                    if message is not None:
+                        cache_msg = discord.utils.get(client.cached_messages, id=message.id)
+                        if cache_msg:
+                            for reaction in cache_msg.reactions:
+                                if str(reaction.emoji) == "👍":
+                                    async for user in reaction.users():
+                                        if user != client.user and user.name not in players:
+                                            players.append(user.name)
+                                            if len(players) == 4:
+                                                await update_embed(message, players)
+                                                return
 
                 await asyncio.sleep(1)
 
             for destination_channel_id, message in sent_messages.items():
-                await update_embed(message, players)
+                if message is not None:  # Ensure message is not None before updating
+                    await update_embed(message, players)
 
         except Exception as e:
             logging.error(f"Error during LFG process: {e}")
@@ -388,7 +395,6 @@ async def biglfg(interaction: discord.Interaction):
             await interaction.followup.send("An error occurred while processing the LFG request.", ephemeral=True)
         except discord.HTTPException as e:
             logging.error(f"Error sending error message: {e}")
-
 
 # -------------------------------------------------------------------------
 # Helper Functions
