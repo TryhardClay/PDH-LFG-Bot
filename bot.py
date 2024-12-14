@@ -311,12 +311,8 @@ async def about(interaction: discord.Interaction):
 # BigLFG Commands
 # -------------------------------------------------------------------------
 
-@client.tree.command(name="biglfg", description="Commands for BigLFG.")
-async def biglfg(interaction: discord.Interaction):
-    pass  # This is just a placeholder for the subcommands
-
-# Define biglfg_create as a regular function
-async def biglfg_create(interaction: discord.Interaction, filter: str):
+@client.tree.command(name="biglfg", description="Create a BigLFG game.")  # Updated description
+async def biglfg(interaction: discord.Interaction, filter: str):  # Main biglfg command
     try:
         await interaction.response.defer()
 
@@ -325,7 +321,7 @@ async def biglfg_create(interaction: discord.Interaction, filter: str):
 
         # Define the embed variable here
         embed = discord.Embed(title="Looking for more players...", color=discord.Color.green())
-        embed.set_footer(text="React with 👍 to join! (4 players needed)")
+        embed.set_footer(text="Click a button to join or leave! (4 players needed)")  # Updated text
 
         # Create buttons
         join_button = discord.ui.Button(label="Join", style=discord.ButtonStyle.green, custom_id="join_button")
@@ -340,14 +336,11 @@ async def biglfg_create(interaction: discord.Interaction, filter: str):
         await interaction.followup.send(embed=embed, view=view)
 
     except Exception as e:
-        logging.error(f"Error in /biglfg create command: {e}")
+        logging.error(f"Error in /biglfg command: {e}")
         try:
             await interaction.followup.send("An error occurred while creating the BigLFG game.", ephemeral=True)
         except discord.HTTPException as e:
             logging.error(f"Error sending error message: {e}")
-
-# Register the subcommand using the correct syntax
-client.tree.command(name="create", description="/biglfg create")(biglfg_create)
 
 # -------------------------------------------------------------------------
 # Event Handlers for Buttons
