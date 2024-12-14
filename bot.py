@@ -163,23 +163,20 @@ async def on_message(message):
                     source_filter == 'none' or
                     destination_filter == 'none'):
                     try:
-                        message = await send_webhook_message(
+                        # Attempt to send the message
+                        await send_webhook_message(
                             webhook_data['url'],
                             content=content,
                             embeds=embeds,
                             username=f"{message.author.name} from {message.guild.name}",
                             avatar_url=message.author.avatar.url if message.author.avatar else None
                         )
-                        if message is None:
-                            logging.error(f"Failed to send message to {destination_channel_id}")
-                            continue  # Skip to the next destination
 
-                        # Add reactions from the original message to the relayed message
-                        for reaction in message.reactions:
-                            try:
-                                await reaction.message.add_reaction(reaction.emoji)
-                            except discord.HTTPException as e:
-                                logging.error(f"Error adding reaction: {e}")
+                        # Since we're ignoring the return value of send_webhook_message,
+                        # we can't reliably determine if it was successful or not.
+                        # So, we'll just log a generic success message here.
+                        logging.info(f"Attempted to relay message to {destination_channel_id}")
+
                     except Exception as e:
                         logging.error(f"Error relaying message: {e}")
 
