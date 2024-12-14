@@ -323,7 +323,9 @@ async def biglfg_create(interaction: discord.Interaction, filter: str):
         source_channel_id = f'{interaction.guild.id}_{interaction.channel.id}'
         source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
 
-        # ... (rest of your biglfg_create command logic) ...
+        # Define the embed variable here
+        embed = discord.Embed(title="Looking for more players...", color=discord.Color.green())
+        embed.set_footer(text="React with 👍 to join! (4 players needed)")
 
         # Create buttons
         join_button = discord.ui.Button(label="Join", style=discord.ButtonStyle.green, custom_id="join_button")
