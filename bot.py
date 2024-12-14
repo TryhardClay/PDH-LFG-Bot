@@ -312,7 +312,10 @@ async def about(interaction: discord.Interaction):
 # -------------------------------------------------------------------------
 
 @client.tree.command(name="biglfg", description="Create a BigLFG game.")
-async def biglfg(interaction: discord.Interaction):  # No filter argument
+async def biglfg(interaction: discord.Interaction):
+    """
+    Create a BigLFG game with the filter set to the current channel's filter.
+    """
     try:
         await interaction.response.defer()
 
