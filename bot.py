@@ -204,7 +204,9 @@ async def resetconfig(interaction: discord.Interaction):
 async def message_relay_loop():
     while True:
         try:
-            # ... (your existing message relay logic) ...
+            await asyncio.sleep(1)  # Check for new messages every second
+            # (your existing message relay logic goes here) 
+
         except Exception as e:
             logging.error(f"Error in message relay loop: {e}")
             # Consider adding a retry mechanism or sleep here
