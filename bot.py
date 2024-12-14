@@ -334,8 +334,8 @@ async def about(interaction: discord.Interaction):
 async def biglfg(interaction: discord.Interaction):
     pass  # This is just a placeholder for the subcommands
 
-@biglfg.command(name="create", description="Create a BigLFG game.")
-async def biglfg_create(interaction: discord.Interaction, filter: str):
+# Define biglfg create as a regular function
+def biglfg_create(interaction: discord.Interaction, filter: str):
     try:
         await interaction.response.defer()
 
@@ -351,7 +351,10 @@ async def biglfg_create(interaction: discord.Interaction, filter: str):
         except discord.HTTPException as e:
             logging.error(f"Error sending error message: {e}")
 
-# ... (Add biglfg join and biglfg leave commands) ...
+# Register the subcommand
+client.tree.command(name="create", description="/biglfg create", function=biglfg_create)
+
+# ... (Add biglfg join and biglfg leave commands similarly) ...
 
 # -------------------------------------------------------------------------
 # Helper Functions
