@@ -75,7 +75,7 @@ message_relay_task = None
 # Webhook Functions
 # -------------------------------------------------------------------------
 
-async def send_webhook_message(webhook_url, content=None, embeds=None, username=None, avatar_url=None):
+async def send_webhook_message(webhook_url, content=None, embeds=None, username=None, avatar_url=None, view=None):  # Add view parameter
     async with aiohttp.ClientSession() as session:
         data = {}
         if content:
@@ -94,7 +94,21 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
                     # No longer try to get the Location header
                     # Assume the message was sent successfully
 
-                    return  # Return without fetching the message object
+                    try:
+                        # Add view to the webhook message
+                        webhook = discord.Webhook.from_url(webhook_url, session=session)  # Moved webhook initialization here
+                        message = await webhook.send(
+                            content=content,
+                            embeds=embeds,
+                            username=username,
+                            avatar_url=avatar_url,
+                            wait=True,  # Wait for the message to be sent
+                            view=view  # Include the view with buttons
+                        )
+                        return message
+                    except Exception as e:
+                        logging.error(f"Error fetching last message from webhook: {e}")
+                        return None
 
                 elif response.status == 429:
                     logging.warning("Rate limited!")
@@ -102,7 +116,7 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
                     retry_after = float(response.headers.get("Retry-After", 1))
                     logging.warning(f"Retrying in {retry_after} seconds...")
                     await asyncio.sleep(retry_after)
-                    return await send_webhook_message(webhook_url, content, embeds, username, avatar_url)  # Retry
+                    return await send_webhook_message(webhook_url, content, embeds, username, avatar_url, view)  # Retry
                 else:
                     logging.error(f"Failed to send message. Status code: {response.status}")
                     return None
