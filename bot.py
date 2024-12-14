@@ -69,31 +69,37 @@ async def on_ready():
     logging.info(f'Logged in as {client.user}')
     await client.tree.sync()
     global message_relay_task
-    if not message_relay_task:
+    # Ensure the message relay task is running
+    if message_relay_task is None or message_relay_task.done():
         message_relay_task = asyncio.create_task(message_relay_loop())
     # Start the role management task
-    role_management_task.start()
+    if not role_management_task.is_running():
+        role_management_task.start()
+
 
 @tasks.loop(seconds=60)  # Check every 60 seconds
 async def role_management_task():
-    for guild in client.guilds:
-        try:
-            # Check if the role exists
-            role = discord.utils.get(guild.roles, name="PDH LFG Bot")
-            if not role:
-                # Create the role if it doesn't exist
-                role = await guild.create_role(name="PDH LFG Bot", mentionable=True)
-                logging.info(f"Created role {role.name} in server {guild.name}")
+    try:
+        for guild in client.guilds:
+            try:
+                # Check if the role exists
+                role = discord.utils.get(guild.roles, name="PDH LFG Bot")
+                if not role:
+                    # Create the role if it doesn't exist
+                    role = await guild.create_role(name="PDH LFG Bot", mentionable=True)
+                    logging.info(f"Created role {role.name} in server {guild.name}")
 
-            # Ensure the bot has the role
-            if role not in guild.me.roles:
-                await guild.me.add_roles(role)
-                logging.info(f"Added role {role.name} to the bot in server {guild.name}")
+                # Ensure the bot has the role
+                if role not in guild.me.roles:
+                    await guild.me.add_roles(role)
+                    logging.info(f"Added role {role.name} to the bot in server {guild.name}")
 
-        except discord.Forbidden:
-            logging.warning(f"Missing permissions to manage roles in server {guild.name}")
-        except discord.HTTPException as e:
-            logging.error(f"Error managing role in server {guild.name}: {e}")
+            except discord.Forbidden:
+                logging.warning(f"Missing permissions to manage roles in server {guild.name}")
+            except discord.HTTPException as e:
+                logging.error(f"Error managing role in server {guild.name}: {e}")
+    except Exception as e:
+        logging.error(f"Unexpected error in role_management_task: {e}")
 
 
 @client.event
@@ -103,7 +109,8 @@ async def on_guild_join(guild):
         if channel.permissions_for(guild.me).send_messages:
             try:
                 await channel.send("Hello! I'm your cross-server communication bot. \n"
-                                   "An admin needs to use the `/setchannel` command to choose a channel for relaying messages. \n"
+                                   "An admin needs to use the `/setchannel` command to \n"
+                                   "choose a channel for relaying messages. \n"
                                    "Be sure to select an appropriate filter; either 'cpdh' or 'casual'.")
                 break  # Stop after sending the message once
             except discord.Forbidden:
@@ -197,12 +204,10 @@ async def resetconfig(interaction: discord.Interaction):
 async def message_relay_loop():
     while True:
         try:
-            await asyncio.sleep(1)
-            # This loop currently does nothing but sleep.
-            # You'll likely want to add logic here for tasks that need
-            # to run periodically in the background.
+            # ... (your existing message relay logic) ...
         except Exception as e:
             logging.error(f"Error in message relay loop: {e}")
+            # Consider adding a retry mechanism or sleep here
 
 
 @client.event
