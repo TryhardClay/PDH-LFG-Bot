@@ -88,9 +88,7 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
             data['avatar_url'] = avatar_url
         try:
             async with session.post(webhook_url, json=data) as response:
-                # Log the full response object and headers for debugging
-                logging.info(f"Full response: {response}")
-                logging.info(f"Response headers: {response.headers}")
+                # Removed logging for Location information
 
                 if response.status == 204:
                     logging.info("Message sent successfully.")
@@ -102,7 +100,7 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
                         message = await webhook.fetch_message(message_id)
                         return message
                     else:
-                        logging.error(f"Missing 'Location' header in response: {response}")
+                        logging.error(f"Missing 'Location' header in response.")  # Simplified error message
                         # Attempt to fetch the last message as a fallback
                         try:
                             webhook = discord.Webhook.from_url(webhook_url, session=session)
@@ -290,21 +288,20 @@ async def listconnections(interaction: discord.Interaction):
         logging.error(f"Error listing connections: {e}")
         await interaction.response.send_message("An error occurred while listing connections.", ephemeral=True)
 
-@client.tree.command(name="resetconfig", description="Reset the bot's configuration.")
+@client.tree.command(name="resetconfig", description="Reload the bot's configuration (for debugging/development).")
 @has_permissions(administrator=True)
 async def resetconfig(interaction: discord.Interaction):
     try:
+        # Reload webhooks.json and channel_filters.json
         global WEBHOOK_URLS, CHANNEL_FILTERS
-        WEBHOOK_URLS = {}
-        CHANNEL_FILTERS = {}
-        save_webhook_data()
-        save_channel_filters()
+        WEBHOOK_URLS = load_webhook_data()
+        CHANNEL_FILTERS = load_channel_filters()
 
-        await interaction.response.send_message("Bot configuration reset.", ephemeral=True)
+        await interaction.response.send_message("Bot configuration reloaded.", ephemeral=True)
 
     except Exception as e:
-        logging.error(f"Error resetting configuration: {e}")
-        await interaction.response.send_message("An error occurred while resetting the configuration.", ephemeral=True)
+        logging.error(f"Error reloading configuration: {e}")
+        await interaction.response.send_message("An error occurred while reloading the configuration.", ephemeral=True)
 
 @client.tree.command(name="about", description="Show information about the bot and its commands.")
 async def about(interaction: discord.Interaction):
