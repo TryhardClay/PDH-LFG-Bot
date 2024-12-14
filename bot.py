@@ -311,17 +311,19 @@ async def about(interaction: discord.Interaction):
 # BigLFG Commands
 # -------------------------------------------------------------------------
 
-@client.tree.command(name="biglfg", description="Create a BigLFG game.")  # Updated description
-async def biglfg(interaction: discord.Interaction, filter: str):  # Main biglfg command
+@client.tree.command(name="biglfg", description="Create a BigLFG game.")
+async def biglfg(interaction: discord.Interaction):  # No filter argument
     try:
         await interaction.response.defer()
 
         source_channel_id = f'{interaction.guild.id}_{interaction.channel.id}'
+
+        # Get the filter of the source channel
         source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
 
         # Define the embed variable here
         embed = discord.Embed(title="Looking for more players...", color=discord.Color.green())
-        embed.set_footer(text="Click a button to join or leave! (4 players needed)")  # Updated text
+        embed.set_footer(text="Click a button to join or leave! (4 players needed)")
 
         # Create buttons
         join_button = discord.ui.Button(label="Join", style=discord.ButtonStyle.green, custom_id="join_button")
