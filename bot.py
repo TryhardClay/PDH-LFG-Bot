@@ -88,27 +88,14 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
             data['avatar_url'] = avatar_url
         try:
             async with session.post(webhook_url, json=data) as response:
-                # Removed logging for Location information
-
                 if response.status == 204:
                     logging.info("Message sent successfully.")
 
-                    location = response.headers.get('Location')
-                    if location:
-                        message_id = int(location.split('/')[-1])
-                        webhook = discord.Webhook.from_url(webhook_url, session=session)
-                        message = await webhook.fetch_message(message_id)
-                        return message
-                    else:
-                        logging.error(f"Missing 'Location' header in response.")  # Simplified error message
-                        # Attempt to fetch the last message as a fallback
-                        try:
-                            webhook = discord.Webhook.from_url(webhook_url, session=session)
-                            message = await webhook.fetch_message(webhook.id)
-                            return message
-                        except Exception as e:
-                            logging.error(f"Error fetching last message from webhook: {e}")
-                            return None
+                    # No longer try to get the Location header
+                    # Assume the message was sent successfully
+
+                    return  # Return without fetching the message object
+
                 elif response.status == 429:
                     logging.warning("Rate limited!")
                     # Implement rate limit handling
