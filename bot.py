@@ -82,7 +82,7 @@ async def on_ready():
     if message_relay_task is None or message_relay_task.done():
         message_relay_task = asyncio.create_task(message_relay_loop())
     if not role_management_task.is_running():
-        role_management_task.start()
+        role_management_task.start()  
 
 @client.event
 async def on_guild_join(guild):
