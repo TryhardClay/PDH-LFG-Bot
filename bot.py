@@ -92,4 +92,79 @@ async def on_guild_join(guild):
             try:
                 await channel.send("Hello! I'm your cross-server communication bot. \n"
                                    "An admin needs to use the `/setchannel` command to \n"
-                                   "choose a channel
+                                   "choose a channel for relaying messages. \n"
+                                   "Be sure to select an appropriate filter; either 'cpdh' or 'casual'.")
+                break  # Stop after sending the message once
+            except discord.Forbidden:
+                pass  # Continue to the next channel if sending fails
+
+@client.event
+async def on_message(message):
+    # ... (on_message logic remains the same) ...
+
+@client.event
+async def on_guild_remove(guild):
+    # This is now handled by the role_management_task
+    pass
+
+# -------------------------------------------------------------------------
+# Tasks
+# -------------------------------------------------------------------------
+
+@tasks.loop(seconds=60)  # Check every 60 seconds
+async def role_management_task():
+    try:
+        for guild in client.guilds:
+            try:
+                # ... (role management logic remains the same) ...
+            except discord.Forbidden:
+                logging.warning(f"Missing permissions to manage roles in server {guild.name}")
+            except discord.HTTPException as e:
+                logging.error(f"Error managing role in server {guild.name}: {e}")
+    except Exception as e:
+        logging.error(f"Unexpected error in role_management_task: {e}")
+
+# -------------------------------------------------------------------------
+# Commands
+# -------------------------------------------------------------------------
+
+@client.tree.command(name="setchannel", description="Set the channel for cross-server communication.")
+@has_permissions(manage_channels=True)
+async def setchannel(interaction: discord.Interaction, channel: discord.TextChannel, filter: str):
+    # ... (setchannel logic with webhook ID storage remains the same) ...
+
+@client.tree.command(name="disconnect", description="Disconnect a channel from cross-server communication.")
+@has_permissions(manage_channels=True)
+async def disconnect(interaction: discord.Interaction, channel: discord.TextChannel):
+    # ... (disconnect logic remains the same) ...
+
+@client.tree.command(name="listconnections", description="List connected channels for cross-server communication.")
+@has_permissions(manage_channels=True)
+async def listconnections(interaction: discord.Interaction):
+    # ... (listconnections logic remains the same) ...
+
+@client.tree.command(name="resetconfig", description="Reload the bot's configuration (for debugging/development).")
+@has_permissions(administrator=True)
+async def resetconfig(interaction: discord.Interaction):
+    # ... (resetconfig logic remains the same) ...
+
+@client.tree.command(name="about", description="Show information about the bot and its commands.")
+async def about(interaction: discord.Interaction):
+    # ... (about logic remains the same) ...
+
+# -------------------------------------------------------------------------
+# Message Relay Loop
+# -------------------------------------------------------------------------
+
+async def message_relay_loop():
+    while True:
+        try:
+            # ... (message relay logic remains the same) ...
+        except Exception as e:
+            logging.error(f"Error in message relay loop: {e}")
+
+# -------------------------------------------------------------------------
+# Run the Bot
+# -------------------------------------------------------------------------
+
+client.run(TOKEN)
