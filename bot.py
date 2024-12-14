@@ -17,8 +17,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Access the token from the environment variable
 TOKEN = os.environ.get('TOKEN')
 
-# Persistent storage path
+# Persistent storage paths
 PERSISTENT_DATA_PATH = '/var/data/webhooks.json'
+CHANNEL_FILTERS_PATH = '/var/data/channel_filters.json'  # New file for channel filters
 
 # Load webhook data from persistent storage with validation
 def load_webhook_data():
@@ -37,8 +38,24 @@ def load_webhook_data():
         logging.error(f"Error decoding JSON from {PERSISTENT_DATA_PATH}: {e}")
         return {}
 
+# Load channel filters from persistent storage
+def load_channel_filters():
+    try:
+        with open(CHANNEL_FILTERS_PATH, 'r') as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                return data
+            else:
+                logging.error(f"Invalid data format in {CHANNEL_FILTERS_PATH}")
+                return {}
+    except FileNotFoundError:
+        return {}  # Initialize if the file doesn't exist
+    except json.decoder.JSONDecodeError as e:
+        logging.error(f"Error decoding JSON from {CHANNEL_FILTERS_PATH}: {e}")
+        return {}
+
 WEBHOOK_URLS = load_webhook_data()
-CHANNEL_FILTERS = {}  # Dictionary to store channel filters
+CHANNEL_FILTERS = load_channel_filters()  # Load channel filters
 
 # Define intents (includes messages intent)
 intents = discord.Intents.default()
@@ -94,52 +111,6 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
         except aiohttp.ClientError as e:
             logging.error(f"Error sending webhook message: {e}")
 
-@client.event
-async def on_message(message):
-    if message.author == client.user:
-        return
-
-    if message.webhook_id and message.author.id != client.user.id:
-        return
-
-    content = message.content
-    embeds = [embed.to_dict() for embed in message.embeds]
-    if message.attachments:
-        content += "\n" + "\n".join([attachment.url for attachment in message.attachments])
-
-    source_channel_id = f'{message.guild.id}_{message.channel.id}'
-
-    if source_channel_id in WEBHOOK_URLS:
-        source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
-
-        for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
-            if source_channel_id != destination_channel_id:
-                destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
-
-                if (source_filter == destination_filter or 
-                    source_filter == 'none' or 
-                    destination_filter == 'none'):
-                    try:
-                        message = await send_webhook_message(
-                            webhook_data['url'],
-                            content=content,
-                            embeds=embeds,
-                            username=f"{message.author.name} from {message.guild.name}",
-                            avatar_url=message.author.avatar.url if message.author.avatar else None
-                        )
-                        if message is None:
-                            logging.error(f"Failed to send message to {destination_channel_id}")
-                            continue  # Skip to the next destination
-
-                        for reaction in message.reactions:
-                            try:
-                                await reaction.message.add_reaction(reaction.emoji)
-                            except discord.HTTPException as e:
-                                logging.error(f"Error adding reaction: {e}")
-
-                    except Exception as e:
-                        logging.error(f"Error relaying message: {e}")
-
 # -------------------------------------------------------------------------
 # Event Handlers
 # -------------------------------------------------------------------------
@@ -191,20 +162,29 @@ async def on_message(message):
             if source_channel_id != destination_channel_id:
                 destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
 
-                if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
-                    await send_webhook_message(
-                        webhook_data['url'],
-                        content=content,
-                        embeds=embeds,
-                        username=f"{message.author.name} from {message.guild.name}",
-                        avatar_url=message.author.avatar.url if message.author.avatar else None
-                    )
+                if (source_filter == destination_filter or 
+                    source_filter == 'none' or 
+                    destination_filter == 'none'):
+                    try:
+                        message = await send_webhook_message(
+                            webhook_data['url'],
+                            content=content,
+                            embeds=embeds,
+                            username=f"{message.author.name} from {message.guild.name}",
+                            avatar_url=message.author.avatar.url if message.author.avatar else None
+                        )
+                        if message is None:
+                            logging.error(f"Failed to send message to {destination_channel_id}")
+                            continue  # Skip to the next destination
 
-        for reaction in message.reactions:
-            try:
-                await reaction.message.add_reaction(reaction.emoji)
-            except discord.HTTPException as e:
-                logging.error(f"Error adding reaction: {e}")
+                        for reaction in message.reactions:
+                            try:
+                                await reaction.message.add_reaction(reaction.emoji)
+                            except discord.HTTPException as e:
+                                logging.error(f"Error adding reaction: {e}")
+
+                    except Exception as e:
+                        logging.error(f"Error relaying message: {e}")
 
 @client.event
 async def on_guild_remove(guild):
@@ -252,8 +232,9 @@ async def setchannel(interaction: discord.Interaction, channel: discord.TextChan
         }
         CHANNEL_FILTERS[f'{interaction.guild.id}_{channel.id}'] = filter
 
-        # Save webhook data to persistent storage
+        # Save webhook data and channel filters to persistent storage
         save_webhook_data()
+        save_channel_filters()
 
         await interaction.response.send_message(
             f"Cross-server communication channel set to {channel.mention} with filter '{filter}'.", ephemeral=True)
@@ -402,7 +383,7 @@ async def biglfg(interaction: discord.Interaction):
             logging.error(f"Error during LFG process: {e}")
 
     except Exception as e:
-        logging.error(f"Error in /biglfg command: {e}")
+      logging.error(f"Error in /biglfg command: {e}")
         try:
             await interaction.followup.send("An error occurred while processing the LFG request.", ephemeral=True)
         except discord.HTTPException as e:
@@ -419,6 +400,13 @@ def save_webhook_data():
             json.dump(WEBHOOK_URLS, f, indent=4)
     except Exception as e:
         logging.error(f"Error saving webhook data to {PERSISTENT_DATA_PATH}: {e}")
+
+def save_channel_filters():
+    try:
+        with open(CHANNEL_FILTERS_PATH, 'w') as f:
+            json.dump(CHANNEL_FILTERS, f, indent=4)
+    except Exception as e:
+        logging.error(f"Error saving channel filters to {CHANNEL_FILTERS_PATH}: {e}")
 
 # -------------------------------------------------------------------------
 # Message Relay Loop
