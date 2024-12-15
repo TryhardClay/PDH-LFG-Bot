@@ -194,7 +194,7 @@ async def on_message(message):
 @client.event
 async def on_guild_remove(guild):
     pass  # Role management is handled elsewhere
-
+    
 # -------------------------------------------------------------------------
 # Event Handlers for Buttons
 # -------------------------------------------------------------------------
