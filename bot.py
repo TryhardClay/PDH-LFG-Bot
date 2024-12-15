@@ -431,10 +431,8 @@ async def message_relay_loop():
             else:
                 # Handle other Forbidden errors
                 logging.error(f"Forbidden error in message relay loop: {e}")
-        except discord.HTTPException as e:
-            pass  # Ignore all HTTP exceptions
-        except Exception as e:
-            logging.error(f"Error in message relay loop: {e}")
+        except:  # Catch all exceptions but do nothing
+            pass
 
 # -------------------------------------------------------------------------
 # Run the Bot
