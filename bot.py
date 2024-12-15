@@ -6,6 +6,7 @@ import os
 import logging
 from discord.ext import commands, tasks
 from discord.ext.commands import has_permissions
+print(f"discord.py version: {discord.__version__}") 
 
 # -------------------------------------------------------------------------
 # Setup and Configuration
