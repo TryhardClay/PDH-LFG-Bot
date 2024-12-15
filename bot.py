@@ -119,9 +119,9 @@ async def on_guild_join(guild):
         if channel.permissions_for(guild.me).send_messages:
             try:
                 await channel.send("Hello! I'm your cross-server communication bot. \n"
-                                    "An admin needs to use the `/setchannel` command to \n"
-                                    "choose a channel for relaying messages. \n"
-                                    "Be sure to select an appropriate filter; either 'cpdh' or 'casual'.")
+                                  "An admin needs to use the `/setchannel` command to \n"
+                                  "choose a channel for relaying messages. \n"
+                                  "Be sure to select an appropriate filter; either 'cpdh' or 'casual'.")
                 break  # Stop after sending the message once
             except discord.Forbidden:
                 pass  # Continue to the next channel if sending fails
@@ -151,9 +151,9 @@ async def on_message(message):
             if source_channel_id != destination_channel_id:
                 destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
 
-                if (source_filter == destination_filter or 
-                    source_filter == 'none' or 
-                    destination_filter == 'none'):
+                if (source_filter == destination_filter or
+                        source_filter == 'none' or
+                        destination_filter == 'none'):
                     try:
                         message = await send_webhook_message(
                             webhook_data['url'],
@@ -163,8 +163,7 @@ async def on_message(message):
                             avatar_url=message.author.avatar.url if message.author.avatar else None
                         )
                         if message is None:
-                            logging.error(f"Failed to send message to {destination_channel_id}")
-                            continue  # Skip to the next destination
+                            pass  # Suppress "Failed to send message to ..." error
 
                         for reaction in message.reactions:
                             try:
