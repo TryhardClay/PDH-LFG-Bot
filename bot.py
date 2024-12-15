@@ -266,9 +266,9 @@ async def listconnections(interaction: discord.Interaction):
         logging.error(f"Error listing connections: {e}")
         await interaction.response.send_message("An error occurred while listing connections.", ephemeral=True)
 
-@client.tree.command(name="resetconfig", description="Reload the bot's configuration (for debugging/development).")
+@client.tree.command(name="updateconfig", description="Reload the bot's configuration (for debugging/development).")
 @has_permissions(administrator=True)
-async def resetconfig(interaction: discord.Interaction):
+async def updateconfig(interaction: discord.Interaction):  # Renamed function to updateconfig
     try:
         # Reload webhooks.json
         global WEBHOOK_URLS
@@ -299,8 +299,8 @@ async def about(interaction: discord.Interaction):
         embed.add_field(name="/disconnect", value="Disconnect a channel from cross-server communication.",
                         inline=False)
         embed.add_field(name="/listconnections", value="List all connected channels and their filters.", inline=False)
-        embed.add_field(name="/resetconfig",
-                        value="Reload the bot's configuration (for debugging/development).", inline=False)
+        embed.add_field(name="/updateconfig",
+                        value="Reload the bot's configuration and sync updates.", inline=False)
         embed.add_field(name="/about", value="Show this information.", inline=False)
         await interaction.response.send_message(embed=embed, ephemeral=True)
     except Exception as e:
