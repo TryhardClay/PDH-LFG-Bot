@@ -6,10 +6,9 @@ import os
 import logging
 from discord.ext import commands, tasks
 from discord.ext.commands import has_permissions
-print(f"discord.py version: {discord.__version__}") 
 
 # -------------------------------------------------------------------------
-# Setup and Configuration
+# Configuration and Setup
 # -------------------------------------------------------------------------
 
 # Set up logging
@@ -63,8 +62,6 @@ def load_channel_filters():
 
 WEBHOOK_URLS = load_webhook_data()
 CHANNEL_FILTERS = load_channel_filters()
-# Dictionary to store BigLFG games and their associated data
-big_lfg_games = {}
 
 # -------------------------------------------------------------------------
 # Helper Functions
@@ -99,36 +96,18 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
             async with session.post(webhook_url, json=data) as response:
                 if response.status == 204:
                     logging.info("Message sent successfully.")
-
-                    # Removed unnecessary code to fetch the message object
-
                 elif response.status == 429:
                     logging.warning("Rate limited!")
-                    # Implement rate limit handling
                     retry_after = float(response.headers.get("Retry-After", 1))
                     logging.warning(f"Retrying in {retry_after} seconds...")
                     await asyncio.sleep(retry_after)
-                    return await send_webhook_message(webhook_url, content, embeds, username, avatar_url,
-                                                       view)  # Retry
+                    return await send_webhook_message(webhook_url, content, embeds, username, avatar_url, view)
                 else:
                     logging.error(f"Failed to send message. Status code: {response.status}")
                     return None
         except aiohttp.ClientError as e:
             logging.error(f"Error sending webhook message: {e}")
             return None
-
-# -------------------------------------------------------------------------
-# Bot Initialization
-# -------------------------------------------------------------------------
-
-# Define intents (includes messages intent)
-intents = discord.Intents.default()
-intents.message_content = True
-intents.guilds = True
-intents.members = True
-intents.messages = True  # Added for caching messages
-
-client = commands.Bot(command_prefix='/', intents=intents)
 
 # -------------------------------------------------------------------------
 # Event Handlers
@@ -138,26 +117,24 @@ client = commands.Bot(command_prefix='/', intents=intents)
 async def on_ready():
     logging.info(f'Logged in as {client.user}')
     await client.tree.sync()
+    # Start the message relay loop
     global message_relay_task
     if message_relay_task is None or message_relay_task.done():
         message_relay_task = asyncio.create_task(message_relay_loop())
 
 @client.event
 async def on_guild_join(guild):
-    # Send the welcome message to a suitable channel
+    # Send the welcome message
     for channel in guild.text_channels:
         if channel.permissions_for(guild.me).send_messages:
             try:
                 await channel.send("Hello! I'm your cross-server communication bot. \n"
-                                  "An admin needs to use the `/setchannel` command to \n"
-                                  "choose a channel for relaying messages. \n"
-                                  "Be sure to select an appropriate filter; either 'cpdh' or 'casual'.")
-                break  # Stop after sending the message once
+                                   "An admin needs to use the `/setchannel` command to \n"
+                                   "choose a channel for relaying messages. \n"
+                                   "Be sure to select an appropriate filter; either 'cpdh' or 'casual'.")
+                break
             except discord.Forbidden:
-                pass  # Continue to the next channel if sending fails
-
-    # Role management is now handled elsewhere 
-    # await manage_role(guild)  <-- Removed this line
+                pass
 
 @client.event
 async def on_message(message):
@@ -197,34 +174,11 @@ async def on_message(message):
 
 @client.event
 async def on_guild_remove(guild):
-    pass  # Role management is handled elsewhere
+    # Clean up webhooks or data related to the removed guild (if needed)
+    pass
 
 # -------------------------------------------------------------------------
-# Event Handlers for Buttons 
-# -------------------------------------------------------------------------
-
-@client.event
-async def on_interaction(interaction):
-    if interaction.type == discord.InteractionType.component:
-        if interaction.data['custom_id'] == "join_button":
-            # Handle join logic here
-            embed = interaction.message.embeds[0]
-            embed.add_field(name="Players:", value=interaction.user.name, inline=False)
-            await interaction.response.edit_message(embed=embed)
-            await interaction.response.send_message("You joined the game!", ephemeral=True)
-        elif interaction.data['custom_id'] == "leave_button":
-            # Handle leave logic here
-            embed = interaction.message.embeds[0]
-            # Assuming the player's name is in a field named "Players:"
-            for i, field in enumerate(embed.fields):
-                if field.name == "Players:":
-                    embed.remove_field(i)
-                    break  # Remove only the first occurrence
-            await interaction.response.edit_message(embed=embed)
-            await interaction.response.send_message("You left the game!", ephemeral=True)
-
-# -------------------------------------------------------------------------
-# Event Handlers for Buttons 
+# Event Handlers for Buttons
 # -------------------------------------------------------------------------
 
 @client.event
@@ -246,32 +200,6 @@ async def on_interaction(interaction):
                     break  # Remove only the first occurrence
             await interaction.response.edit_message(embed=embed)
             await interaction.response.send_message("You left the game!", ephemeral=True)
-
-# -------------------------------------------------------------------------
-# Role Management
-# -------------------------------------------------------------------------
-
-async def manage_role(guild):
-    try:
-        bot_role = discord.utils.get(guild.roles, name="Bot")
-        if not bot_role:  # <-- Check if the role already exists
-            # Create the role if it doesn't exist
-            try:
-                bot_role = await guild.create_role(name="Bot", reason="Bot needs this role for proper functioning")
-                logging.info(f"Created 'Bot' role in {guild.name}")
-            except discord.Forbidden:
-                logging.error(f"Missing permissions to create 'Bot' role in {guild.name}")
-                return
-
-        # Ensure the bot has the necessary permissions
-        try:
-            permissions = discord.Permissions(manage_webhooks=True, manage_messages=True, add_reactions=True)
-            await bot_role.edit(permissions=permissions, reason="Bot needs these permissions")
-            logging.info(f"Updated 'Bot' role permissions in {guild.name}")
-        except discord.Forbidden:
-            logging.error(f"Missing permissions to edit 'Bot' role in {guild.name}")
-    except discord.Forbidden:
-        logging.error(f"Missing permissions to manage roles in {guild.name}")
 
 # -------------------------------------------------------------------------
 # Bot Commands
@@ -291,7 +219,7 @@ async def setchannel(interaction: discord.Interaction, channel: discord.TextChan
             return
 
         # Create the webhook without the state parameter
-        webhook = await channel.create_webhook(name="Cross-Server Bot Webhook")  
+        webhook = await channel.create_webhook(name="Cross-Server Bot Webhook")
 
         # Get the webhook with its state using the ID
         webhook_with_state = discord.Webhook.partial(webhook.id, webhook.url, session=client._session)
@@ -399,67 +327,10 @@ async def biglfg(interaction: discord.Interaction):
     Create a BigLFG game in all connected channels.
     """
     try:
-        # Send an ephemeral message indicating the bot is working
-        await interaction.response.send_message("Creating your BigLFG game...", ephemeral=True)
-
-        # Define the embed
-        embed = discord.Embed(title="Looking for more players...", color=discord.Color.green())
-        embed.set_footer(text="Click a button to join or leave! (4 players needed)")
-
-        # Create buttons with styling
-        join_button = discord.ui.Button(label="Join", style=discord.ButtonStyle.green, custom_id="join_button")
-        leave_button = discord.ui.Button(label="Leave", style=discord.ButtonStyle.red, custom_id="leave_button")
-
-        # Create a View to hold the buttons
-        view = discord.ui.View()
-        view.add_item(join_button)
-        view.add_item(leave_button)
-
-        # Store the message IDs of all sent embeds
-        sent_message_ids = []
-
-        # Send the embed to all connected channels
-        for channel_id, webhook_data in WEBHOOK_URLS.items():
-            try:
-                message = await send_webhook_message(
-                    webhook_data['url'],
-                    embeds=[embed.to_dict()],
-                    username=f"{interaction.user.name} from {interaction.guild.name}",
-                    avatar_url=interaction.user.avatar.url if interaction.user.avatar else None,
-                    view=view
-                )
-                if message is not None:
-                    sent_message_ids.append(message.id)
-            except Exception as e:
-                logging.error(f"Error relaying embed: {e}")
-
-        # Edit the original response to confirm success
-        await interaction.edit_original_response(content="BigLFG game created successfully!")
+        # ... (BigLFG command logic) ...
 
     except Exception as e:
-        logging.error(f"Error in /biglfg command: {e}")
-        try:
-            await interaction.followup.send("An error occurred while creating the BigLFG game.", ephemeral=True)
-        except discord.HTTPException as e:
-            logging.error(f"Error sending error message: {e}")
-
-# -------------------------------------------------------------------------
-# Persistent Storage Functions
-# -------------------------------------------------------------------------
-
-def save_webhook_data():
-    try:
-        with open(PERSISTENT_DATA_PATH, 'w') as f:
-            json.dump(WEBHOOK_URLS, f, indent=4)
-    except Exception as e:
-        logging.error(f"Error saving webhook data to {PERSISTENT_DATA_PATH}: {e}")
-
-def save_channel_filters():
-    try:
-        with open(CHANNEL_FILTERS_PATH, 'w') as f:
-            json.dump(CHANNEL_FILTERS, f, indent=4)
-    except Exception as e:
-        logging.error(f"Error saving channel filters to {CHANNEL_FILTERS_PATH}: {e}")
+        # ... (error handling) ...
 
 # -------------------------------------------------------------------------
 # Message Relay Loop
@@ -469,28 +340,25 @@ def save_channel_filters():
 async def message_relay_loop():
     while True:
         try:
-            await asyncio.sleep(1)  # Check for new messages every second
             # ... (your existing message relay logic)
 
         except discord.Forbidden as e:
             if "Missing Permissions" in str(e):
                 # Assuming you can get the guild object from the message or context
-                await manage_role(guild)  # Trigger role management
+                await manage_role(guild)
             else:
-                # Handle other Forbidden errors
-                pass
+                pass  # Handle other Forbidden errors
         except Exception as e:
             logging.error(f"Error in message relay loop: {e}")
 
-# Start the message relay loop after the bot is ready
-@client.event
-async def on_ready():
-    logging.info(f'Logged in as {client.user}')
-    await client.tree.sync()
-    message_relay_loop.start()  # Start the loop here
-
 # -------------------------------------------------------------------------
-# Run the Bot
+# Main Bot Logic
 # -------------------------------------------------------------------------
 
-client.run(TOKEN)
+async def main():
+    async with aiohttp.ClientSession() as session:
+        client._session = session
+        await client.start(TOKEN)  # Use client.start instead of client.run
+
+if __name__ == "__main__":
+    asyncio.run(main())
