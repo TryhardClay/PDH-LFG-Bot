@@ -377,17 +377,9 @@ async def message_relay_loop():
                 await manage_role(guild)  # Trigger role management
             else:
                 # Handle other Forbidden errors
-                ...
+                pass  # Add this line to handle the else block
         except Exception as e:
             logging.error(f"Error in message relay loop: {e}")
-
-# Start the message relay loop after the bot is ready
-@client.event
-async def on_ready():
-    logging.info(f'Logged in as {client.user}')
-    await client.tree.sync()
-    message_relay_loop.start()  # Start the loop here
-
 # -------------------------------------------------------------------------
 # Run the Bot
 # -------------------------------------------------------------------------
