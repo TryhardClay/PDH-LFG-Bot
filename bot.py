@@ -87,24 +87,17 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
 
         try:
             async with session.post(webhook_url, json=data) as response:
-                logging.info(f"Full response: {response}")
-                logging.info(response)
-                logging.info(f"Response headers: {response.headers}")
-
                 if response.status == 204:
-                    logging.info("Message sent successfully.")
                     # Try to extract the message ID from the Location header
                     location = response.headers.get('Location')
                     if location:
                         try:
                             message_id = int(location.split('/')[-1])
-                            logging.info(f"Extracted message ID: {message_id}")
                             return message_id
                         except ValueError:
                             logging.error(f"Failed to extract message ID from Location header: {location}")
                     else:
-                        # Suppress the "Missing 'Location' header" error message
-                        pass  # Do nothing if the 'Location' header is missing
+                        pass  # Suppress "Missing 'Location' header" error
                 else:
                     logging.error(f"Failed to send message. Status code: {response.status}")
                     logging.error(await response.text())
@@ -116,7 +109,7 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
         except Exception as e:
             logging.error(f"An unexpected error occurred: {e}")
 
-    return None  # Indicate that the message sending failed
+    return None
 
 # -------------------------------------------------------------------------
 # Event Handlers
