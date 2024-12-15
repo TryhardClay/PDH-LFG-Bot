@@ -243,7 +243,7 @@ async def setchannel(interaction: discord.Interaction, channel: discord.TextChan
 @client.tree.command(name="disconnect", description="Disconnect a channel from cross-server communication.")
 @has_permissions(manage_channels=True)
 async def disconnect(interaction: discord.Interaction, channel: discord.TextChannel):
-    try:
+    try:  # <-- Start of the try block
         channel_id = f'{interaction.guild.id}_{channel.id}'
         if channel_id in WEBHOOK_URLS:
             del WEBHOOK_URLS[channel_id]
@@ -257,7 +257,7 @@ async def disconnect(interaction: discord.Interaction, channel: discord.TextChan
         else:
             await interaction.response.send_message(
                 f"Channel {channel.mention} is not connected to cross-server communication.", ephemeral=True)
-    except Exception as e:
+    except Exception as e:  # <-- End of the try block
         logging.error(f"Error disconnecting channel: {e}")
         await interaction.response.send_message("An error occurred while disconnecting the channel.", ephemeral=True)
 
