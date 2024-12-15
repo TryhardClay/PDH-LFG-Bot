@@ -210,6 +210,33 @@ async def on_interaction(interaction):
             await interaction.response.send_message("You left the game!", ephemeral=True)
 
 # --- ADDED REACTION HANDLING LOGIC START ---
+
+# -------------------------------------------------------------------------
+# Role Management
+# -------------------------------------------------------------------------
+
+async def manage_role(guild):
+    try:
+        bot_role = discord.utils.get(guild.roles, name="Bot")
+        if not bot_role:
+            # Create the role if it doesn't exist
+            try:
+                bot_role = await guild.create_role(name="Bot", reason="Bot needs this role for proper functioning")
+                logging.info(f"Created 'Bot' role in {guild.name}")
+            except discord.Forbidden:
+                logging.error(f"Missing permissions to create 'Bot' role in {guild.name}")
+                return
+
+        # Ensure the bot has the necessary permissions
+        try:
+            permissions = discord.Permissions(manage_webhooks=True, manage_messages=True, add_reactions=True)
+            await bot_role.edit(permissions=permissions, reason="Bot needs these permissions")
+            logging.info(f"Updated 'Bot' role permissions in {guild.name}")
+        except discord.Forbidden:
+            logging.error(f"Missing permissions to edit 'Bot' role in {guild.name}")
+    except discord.Forbidden:
+        logging.error(f"Missing permissions to manage roles in {guild.name}")
+        
 @client.event
 async def on_raw_reaction_add(payload):
     if payload.member.bot:
