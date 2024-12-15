@@ -26,12 +26,12 @@ def load_webhook_data():
     try:
         with open(PERSISTENT_DATA_PATH, 'r') as f:
             data = json.load(f)
-            # Basic validation (you can add more checks as needed)
-            if isinstance(data, dict):
-                return data
-            else:
-                logging.warning(f"Invalid data format in {PERSISTENT_DATA_PATH}. Starting with empty webhook data.")
-                return {}
+        # Basic validation (you can add more checks as needed)
+        if isinstance(data, dict):
+            return data
+        else:
+            logging.warning(f"Invalid data format in {PERSISTENT_DATA_PATH}. Starting with empty webhook data.")
+            return {}
     except FileNotFoundError:
         logging.warning(f"{PERSISTENT_DATA_PATH} not found. Starting with empty webhook data.")
         return {}
@@ -44,11 +44,11 @@ def load_channel_filters():
     try:
         with open(CHANNEL_FILTERS_PATH, 'r') as f:
             data = json.load(f)
-            if isinstance(data, dict):
-                return data
-            else:
-                logging.warning(f"Invalid data format in {CHANNEL_FILTERS_PATH}. Starting with empty channel filters.")
-                return {}
+        if isinstance(data, dict):
+            return data
+        else:
+            logging.warning(f"Invalid data format in {CHANNEL_FILTERS_PATH}. Starting with empty channel filters.")
+            return {}
     except FileNotFoundError:
         logging.warning(f"{CHANNEL_FILTERS_PATH} not found. Starting with empty channel filters.")
         return {}
@@ -148,9 +148,9 @@ async def on_guild_join(guild):
         if channel.permissions_for(guild.me).send_messages:
             try:
                 await channel.send("Hello! I'm your cross-server communication bot. \n"
-                                    "An admin needs to use the `/setchannel` command to \n"
-                                    "choose a channel for relaying messages. \n"
-                                    "Be sure to select an appropriate filter; either 'cpdh' or 'casual'.")
+                                  "An admin needs to use the `/setchannel` command to \n"
+                                  "choose a channel for relaying messages. \n"
+                                  "Be sure to select an appropriate filter; either 'cpdh' or 'casual'.")
                 break  # Stop after sending the message once
             except discord.Forbidden:
                 pass  # Continue to the next channel if sending fails
@@ -178,8 +178,8 @@ async def on_message(message):
                 destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
 
                 if (source_filter == destination_filter or
-                    source_filter == 'none' or
-                    destination_filter == 'none'):
+                        source_filter == 'none' or
+                        destination_filter == 'none'):
                     try:
                         await send_webhook_message(
                             webhook_data['url'],
@@ -408,32 +408,6 @@ async def biglfg(interaction: discord.Interaction):
             await interaction.followup.send("An error occurred while creating the BigLFG game.", ephemeral=True)
         except discord.HTTPException as e:
             logging.error(f"Error sending error message: {e}")
-
-# -------------------------------------------------------------------------
-# Role Management
-# -------------------------------------------------------------------------
-
-async def manage_role(guild):
-    try:
-        bot_role = discord.utils.get(guild.roles, name="Bot")
-        if not bot_role:
-            # Create the role if it doesn't exist
-            try:
-                bot_role = await guild.create_role(name="Bot", reason="Bot needs this role for proper functioning")
-                logging.info(f"Created 'Bot' role in {guild.name}")
-            except discord.Forbidden:
-                logging.error(f"Missing permissions to create 'Bot' role in {guild.name}")
-                return
-
-        # Ensure the bot has the necessary permissions
-        try:
-            permissions = discord.Permissions(manage_webhooks=True, manage_messages=True, add_reactions=True)
-            await bot_role.edit(permissions=permissions, reason="Bot needs these permissions")
-            logging.info(f"Updated 'Bot' role permissions in {guild.name}")
-        except discord.Forbidden:
-            logging.error(f"Missing permissions to edit 'Bot' role in {guild.name}")
-    except discord.Forbidden:
-        logging.error(f"Missing permissions to manage roles in {guild.name}")
 
 # -------------------------------------------------------------------------
 # Persistent Storage Functions
