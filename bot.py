@@ -401,7 +401,8 @@ async def biglfg(interaction: discord.Interaction):
     Create a BigLFG game in all connected channels.
     """
     try:
-        await interaction.response.defer()
+        # Send an ephemeral message indicating the bot is working
+        await interaction.response.send_message("Creating your BigLFG game...", ephemeral=True)
 
         # Define the embed
         embed = discord.Embed(title="Looking for more players...", color=discord.Color.green())
@@ -433,6 +434,9 @@ async def biglfg(interaction: discord.Interaction):
                     sent_message_ids.append(message.id)
             except Exception as e:
                 logging.error(f"Error relaying embed: {e}")
+
+        # Edit the original response to confirm success
+        await interaction.edit_original_response(content="BigLFG game created successfully!")
 
     except Exception as e:
         logging.error(f"Error in /biglfg command: {e}")
