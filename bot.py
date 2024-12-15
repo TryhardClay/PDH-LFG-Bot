@@ -430,7 +430,7 @@ async def message_relay_loop():
                 await manage_role(guild)  # Trigger role management
             else:
                 # Handle other Forbidden errors
-                ... 
+                logging.error(f"Forbidden error in message relay loop: {e}")
         except Exception as e:
             logging.error(f"Error in message relay loop: {e}")
 
