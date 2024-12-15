@@ -99,24 +99,7 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
                 if response.status == 204:
                     logging.info("Message sent successfully.")
 
-                    # No longer try to get the Location header
-                    # Assume the message was sent successfully
-
-                    try:
-                        # Add view to the webhook message
-                        webhook = discord.Webhook.from_url(webhook_url, session=session)
-                        message = await webhook.send(
-                            content=content,
-                            embeds=embeds,
-                            username=username,
-                            avatar_url=avatar_url,
-                            wait=True,
-                            view=view
-                        )
-                        return message
-                    except Exception as e:
-                        logging.error(f"Error fetching last message from webhook: {e}")
-                        return None
+                    # Removed unnecessary code to fetch the message object
 
                 elif response.status == 429:
                     logging.warning("Rate limited!")
@@ -124,7 +107,8 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
                     retry_after = float(response.headers.get("Retry-After", 1))
                     logging.warning(f"Retrying in {retry_after} seconds...")
                     await asyncio.sleep(retry_after)
-                    return await send_webhook_message(webhook_url, content, embeds, username, avatar_url, view)  # Retry
+                    return await send_webhook_message(webhook_url, content, embeds, username, avatar_url,
+                                                       view)  # Retry
                 else:
                     logging.error(f"Failed to send message. Status code: {response.status}")
                     return None
