@@ -515,33 +515,7 @@ async def biglfg(interaction: discord.Interaction):
                 logging.error(f"Error relaying embed: {e}")
 
         # --- ADDED REACTION HANDLING LOGIC START ---
-        @client.event
-        async def on_raw_reaction_add(payload):
-            if payload.member.bot:
-                return
-
-            # Check if the reaction is on one of the sent embeds
-            if payload.message_id in sent_message_ids:
-                # Add the reaction to all other copies of the embed
-                for message_id in sent_message_ids:
-                    if message_id != payload.message_id:
-                        channel = client.get_channel(payload.channel_id)
-                        message = await channel.fetch_message(message_id)
-                        await message.add_reaction(payload.emoji)
-
-        @client.event
-        async def on_raw_reaction_remove(payload):
-            if payload.user_id == client.user.id:  # Ignore bot's own reactions
-                return
-
-            # Check if the reaction removal is on one of the sent embeds
-            if payload.message_id in sent_message_ids:
-                # Remove the reaction from all other copies of the embed
-                for message_id in sent_message_ids:
-                    if message_id != payload.message_id:
-                        channel = client.get_channel(payload.channel_id)
-                        message = await channel.fetch_message(message_id)
-                        await message.remove_reaction(payload.emoji, client.user)  # Remove bot's reaction
+        # This section has been removed to prevent re-registration of event handlers
         # --- ADDED REACTION HANDLING LOGIC END ---
 
     except Exception as e:
