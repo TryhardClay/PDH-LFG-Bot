@@ -320,20 +320,26 @@ async def listconnections(interaction: discord.Interaction):
         logging.error(f"Error listing connections: {e}")
         await interaction.response.send_message("An error occurred while listing connections.", ephemeral=True)
 
-@client.tree.command(name="resetconfig", description="Reload the bot's configuration (for debugging/development).")
+@client.tree.command(name="updateconfig", description="Update the bot's configuration and resync commands.")
 @has_permissions(administrator=True)
-async def resetconfig(interaction: discord.Interaction):
+async def updateconfig(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)  # Respond later for longer operations
     try:
         # Reload webhooks.json and channel_filters.json
         global WEBHOOK_URLS, CHANNEL_FILTERS
         WEBHOOK_URLS = load_webhook_data()
         CHANNEL_FILTERS = load_channel_filters()
 
-        await interaction.response.send_message("Bot configuration reloaded.", ephemeral=True)
+        # Resync commands
+        guild = interaction.guild
+        client.tree.copy_global_to(guild=guild)
+        await client.tree.sync(guild=guild)
+
+        await interaction.followup.send("Bot configuration updated and commands resynced.", ephemeral=True)
 
     except Exception as e:
-        logging.error(f"Error reloading configuration: {e}")
-        await interaction.response.send_message("An error occurred while reloading the configuration.", ephemeral=True)
+        logging.error(f"Error updating configuration: {e}")
+        await interaction.followup.send("An error occurred while updating the configuration.", ephemeral=True)
 
 @client.tree.command(name="about", description="Show information about the bot and its commands.")
 async def about(interaction: discord.Interaction):
@@ -347,8 +353,8 @@ async def about(interaction: discord.Interaction):
         embed.add_field(name="/disconnect", value="Disconnect a channel from cross-server communication.",
                         inline=False)
         embed.add_field(name="/listconnections", value="List all connected channels and their filters.", inline=False)
-        embed.add_field(name="/resetconfig",
-                        value="Reset the bot's configuration.", inline=False)
+        embed.add_field(name="/updateconfig",
+                        value="Update the bot's configuration and resync commands.", inline=False)
         embed.add_field(name="/about", value="Show this information.", inline=False)
         await interaction.response.send_message(embed=embed, ephemeral=True)
     except Exception as e:
