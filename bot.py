@@ -290,12 +290,15 @@ async def setchannel(interaction: discord.Interaction, channel: discord.TextChan
                                                     ephemeral=True)
             return
 
-        # Create the webhook with an associated state
-        webhook = await channel.create_webhook(name="Cross-Server Bot Webhook", state=True)  # Set state=True
+        # Create the webhook without the state parameter
+        webhook = await channel.create_webhook(name="Cross-Server Bot Webhook")  
+
+        # Get the webhook with its state using the ID
+        webhook_with_state = discord.Webhook.partial(webhook.id, webhook.url, session=client._session)
 
         WEBHOOK_URLS[f'{interaction.guild.id}_{channel.id}'] = {
-            'url': webhook.url,
-            'id': webhook.id
+            'url': webhook_with_state.url,  # Use webhook_with_state here
+            'id': webhook_with_state.id
         }
         CHANNEL_FILTERS[f'{interaction.guild.id}_{channel.id}'] = filter
 
