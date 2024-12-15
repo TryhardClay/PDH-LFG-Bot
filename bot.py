@@ -422,15 +422,33 @@ async def message_relay_loop():
     while True:
         try:
             await asyncio.sleep(1)  # Check for new messages every second
-            # ... (your existing message relay logic)
+
+            for message in MESSAGE_QUEUE:
+                MESSAGE_QUEUE.remove(message)
+                source_channel_id = str(message.channel.id)
+                webhook_urls = WEBHOOK_URLS.get(source_channel_id, [])[1:]  # Exclude the first webhook (it's the source channel's own webhook)
+
+                if webhook_urls:
+                    message_content = f"**{message.author.display_name}** ({CHANNEL_FILTERS.get(source_channel_id, 'unknown')}):\n{message.content}"
+                    username = message.author.display_name
+                    avatar_url = message.author.avatar.url if message.author.avatar else None
+
+                    for webhook_url in webhook_urls:
+                        async with aiohttp.ClientSession() as session:
+                            webhook = discord.Webhook.from_url(webhook_url, session=session)
+                            await webhook.send(
+                                content=message_content,
+                                username=username,
+                                avatar_url=avatar_url
+                            )
 
         except discord.Forbidden as e:
             if "Missing Permissions" in str(e):
-                # Assuming you can get the guild object from the message or context
+                guild = message.guild  # Get the guild from the message object
                 await manage_role(guild)  # Trigger role management
             else:
-                # Handle other Forbidden errors
                 logging.error(f"Forbidden error in message relay loop: {e}")
+
         except:  # Catch all exceptions but do nothing
             pass
 
