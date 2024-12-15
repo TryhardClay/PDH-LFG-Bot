@@ -233,7 +233,9 @@ async def setchannel(interaction: discord.Interaction, channel: discord.TextChan
                                                     ephemeral=True)
             return
 
-        webhook = await channel.create_webhook(name="Cross-Server Bot Webhook")
+        # Create the webhook with an associated state
+        webhook = await channel.create_webhook(name="Cross-Server Bot Webhook", state=True)  # Set state=True
+
         WEBHOOK_URLS[f'{interaction.guild.id}_{channel.id}'] = {
             'url': webhook.url,
             'id': webhook.id
