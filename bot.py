@@ -199,9 +199,8 @@ async def biglfg(interaction: discord.Interaction):
     try:
         await interaction.response.defer()  # Acknowledge the interaction
 
-        # Get game info from user
-        game = interaction.channel.name  # Use the current channel name as the game name
-        # You can add more sophisticated input methods here if needed
+        # Get game info from user (using channel name for now)
+        game = interaction.channel.name  
 
         # Create the embed
         embed = discord.Embed(
@@ -223,8 +222,8 @@ async def biglfg(interaction: discord.Interaction):
         # Send the embed to all connected channels
         for channel_id, webhook_data in WEBHOOK_URLS.items():
             try:
-                channel = client.get_channel(int(channel_id.split('_')[1]))  # Get the channel object
-                webhook = discord.Webhook.from_url(webhook_data['url'], session=client._session)  # Get the webhook object
+                channel = client.get_channel(int(channel_id.split('_')[1]))
+                webhook = discord.Webhook.from_url(webhook_data['url'], session=client._session)
                 message = await webhook.send(
                     embeds=[embed.to_dict()],
                     username=f"{interaction.user.name} from {interaction.guild.name}",
@@ -233,7 +232,7 @@ async def biglfg(interaction: discord.Interaction):
                 )
                 # Store the message ID for later updates or deletion if necessary
                 WEBHOOK_URLS[channel_id]['last_message_id'] = message.id
-                save_webhook_data()  # Save the updated data
+                save_webhook_data()
 
             except discord.HTTPException as e:
                 logging.error(f"Failed to send message to channel {channel_id}: {e}")
@@ -254,7 +253,6 @@ async def connect(interaction: discord.Interaction, channel: discord.TextChannel
     """
     try:
         await interaction.response.defer()
-        # Create a webhook in the specified channel
         webhook = await channel.create_webhook(name="BigLFG Webhook")
         WEBHOOK_URLS[f"{interaction.guild.id}_{channel.id}"] = {
             "url": webhook.url,
