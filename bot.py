@@ -17,45 +17,71 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Access the token from the environment variable
 TOKEN = os.environ.get('TOKEN')
 
-# Persistent storage path
+# Persistent storage paths
 PERSISTENT_DATA_PATH = '/var/data/webhooks.json'
+CHANNEL_FILTERS_PATH = '/var/data/channel_filters.json'
 
 # Load webhook data from persistent storage with validation
 def load_webhook_data():
     try:
         with open(PERSISTENT_DATA_PATH, 'r') as f:
             data = json.load(f)
-            # Basic validation (you can add more checks as needed)
-            if isinstance(data, dict):
-                return data
-            else:
-                logging.error(f"Invalid data format in {PERSISTENT_DATA_PATH}")
-                return {}
+        # Basic validation (you can add more checks as needed)
+        if isinstance(data, dict):
+            return data
+        else:
+            logging.warning(f"Invalid data format in {PERSISTENT_DATA_PATH}. Starting with empty webhook data.")
+            return {}
     except FileNotFoundError:
-        return {}  # Initialize if the file doesn't exist
-    except json.decoder.JSONDecodeError as e:
-        logging.error(f"Error decoding JSON from {PERSISTENT_DATA_PATH}: {e}")
+        logging.warning(f"{PERSISTENT_DATA_PATH} not found. Starting with empty webhook data.")
+        return {}
+    except Exception as e:
+        logging.error(f"Error loading webhook data from {PERSISTENT_DATA_PATH}: {e}")
         return {}
 
+# Load channel filters from persistent storage
+def load_channel_filters():
+    try:
+        with open(CHANNEL_FILTERS_PATH, 'r') as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return data
+        else:
+            logging.warning(f"Invalid data format in {CHANNEL_FILTERS_PATH}. Starting with empty channel filters.")
+            return {}
+    except FileNotFoundError:
+        logging.warning(f"{CHANNEL_FILTERS_PATH} not found. Starting with empty channel filters.")
+        return {}
+    except Exception as e:
+        logging.error(f"Error loading channel filters from {CHANNEL_FILTERS_PATH}: {e}")
+        return {}
+
+# -------------------------------------------------------------------------
+# Global Variables
+# -------------------------------------------------------------------------
+
 WEBHOOK_URLS = load_webhook_data()
-CHANNEL_FILTERS = {}  # Dictionary to store channel filters
-
-# Define intents
-intents = discord.Intents.default()
-intents.message_content = True
-intents.guilds = True
-intents.members = True
-
-client = commands.Bot(command_prefix='/', intents=intents)
-
-# Global variable to keep track of the main message handling task
-message_relay_task = None
+CHANNEL_FILTERS = load_channel_filters()
 
 # -------------------------------------------------------------------------
-# Webhook Functions
+# Helper Functions
 # -------------------------------------------------------------------------
 
-async def send_webhook_message(webhook_url, content=None, embeds=None, username=None, avatar_url=None):
+def save_webhook_data():
+    try:
+        with open(PERSISTENT_DATA_PATH, 'w') as f:
+            json.dump(WEBHOOK_URLS, f, indent=4)
+    except Exception as e:
+        logging.error(f"Error saving webhook data to {PERSISTENT_DATA_PATH}: {e}")
+
+def save_channel_filters():
+    try:
+        with open(CHANNEL_FILTERS_PATH, 'w') as f:
+            json.dump(CHANNEL_FILTERS, f, indent=4)
+    except Exception as e:
+        logging.error(f"Error saving channel filters to {CHANNEL_FILTERS_PATH}: {e}")
+
+async def send_webhook_message(webhook_url, content=None, embeds=None, username=None, avatar_url=None, view=None):
     async with aiohttp.ClientSession() as session:
         data = {}
         if content:
@@ -70,13 +96,36 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
             async with session.post(webhook_url, json=data) as response:
                 if response.status == 204:
                     logging.info("Message sent successfully.")
+
+                    # Removed unnecessary code to fetch the message object
+
                 elif response.status == 429:
                     logging.warning("Rate limited!")
-                    # TODO: Implement more sophisticated rate limit handling
+                    # Implement rate limit handling
+                    retry_after = float(response.headers.get("Retry-After", 1))
+                    logging.warning(f"Retrying in {retry_after} seconds...")
+                    await asyncio.sleep(retry_after)
+                    return await send_webhook_message(webhook_url, content, embeds, username, avatar_url,
+                                                       view)  # Retry
                 else:
                     logging.error(f"Failed to send message. Status code: {response.status}")
+                    return None
         except aiohttp.ClientError as e:
             logging.error(f"Error sending webhook message: {e}")
+            return None
+
+# -------------------------------------------------------------------------
+# Bot Initialization
+# -------------------------------------------------------------------------
+
+# Define intents (includes messages intent)
+intents = discord.Intents.default()
+intents.message_content = True
+intents.guilds = True
+intents.members = True
+intents.messages = True  # Added for caching messages
+
+client = commands.Bot(command_prefix='/', intents=intents)
 
 # -------------------------------------------------------------------------
 # Event Handlers
@@ -97,9 +146,9 @@ async def on_guild_join(guild):
         if channel.permissions_for(guild.me).send_messages:
             try:
                 await channel.send("Hello! I'm your cross-server communication bot. \n"
-                                   "An admin needs to use the `/setchannel` command to \n"
-                                   "choose a channel for relaying messages. \n"
-                                   "Be sure to select an appropriate filter; either 'cpdh' or 'casual'.")
+                                  "An admin needs to use the `/setchannel` command to \n"
+                                  "choose a channel for relaying messages. \n"
+                                  "Be sure to select an appropriate filter; either 'cpdh' or 'casual'.")
                 break  # Stop after sending the message once
             except discord.Forbidden:
                 pass  # Continue to the next channel if sending fails
@@ -109,10 +158,7 @@ async def on_guild_join(guild):
 
 @client.event
 async def on_message(message):
-    if message.author == client.user:
-        return
-
-    if message.webhook_id and message.author.id != client.user.id:
+    if message.author == client.user or message.webhook_id:
         return
 
     content = message.content
@@ -129,24 +175,32 @@ async def on_message(message):
             if source_channel_id != destination_channel_id:
                 destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
 
-                if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
-                    await send_webhook_message(
-                        webhook_data['url'],
-                        content=content,
-                        embeds=embeds,
-                        username=f"{message.author.name} from {message.guild.name}",
-                        avatar_url=message.author.avatar.url if message.author.avatar else None
-                    )
+                if (source_filter == destination_filter or
+                        source_filter == 'none' or
+                        destination_filter == 'none'):
+                    try:
+                        await send_webhook_message(
+                            webhook_data['url'],
+                            content=content,
+                            embeds=embeds,
+                            username=f"{message.author.name} from {message.guild.name}",
+                            avatar_url=message.author.avatar.url if message.author.avatar else None
+                        )
 
-        for reaction in message.reactions:
-            try:
-                await reaction.message.add_reaction(reaction.emoji)
-            except discord.HTTPException as e:
-                logging.error(f"Error adding reaction: {e}")
+                        logging.info(f"Attempted to relay message to {destination_channel_id}")
+
+                    except Exception as e:
+                        logging.error(f"Error relaying message: {e}")
 
 @client.event
 async def on_guild_remove(guild):
     pass  # Role management is handled elsewhere
+
+# -------------------------------------------------------------------------
+# Event Handlers for Buttons (Removed)
+# -------------------------------------------------------------------------
+
+# ... (Button event handlers removed)
 
 # -------------------------------------------------------------------------
 # Role Management
@@ -154,20 +208,28 @@ async def on_guild_remove(guild):
 
 async def manage_role(guild):
     try:
-        role = discord.utils.get(guild.roles, name="PDH LFG Bot")
-        if not role:
-            role = await guild.create_role(name="PDH LFG Bot", mentionable=True)
-            logging.info(f"Created role {role.name} in server {guild.name}")
-        if role not in guild.me.roles:
-            await guild.me.add_roles(role)
-            logging.info(f"Added role {role.name} to the bot in server {guild.name}")
+        bot_role = discord.utils.get(guild.roles, name="Bot")
+        if not bot_role:
+            # Create the role if it doesn't exist
+            try:
+                bot_role = await guild.create_role(name="Bot", reason="Bot needs this role for proper functioning")
+                logging.info(f"Created 'Bot' role in {guild.name}")
+            except discord.Forbidden:
+                logging.error(f"Missing permissions to create 'Bot' role in {guild.name}")
+                return
+
+        # Ensure the bot has the necessary permissions
+        try:
+            permissions = discord.Permissions(manage_webhooks=True, manage_messages=True, add_reactions=True)
+            await bot_role.edit(permissions=permissions, reason="Bot needs these permissions")
+            logging.info(f"Updated 'Bot' role permissions in {guild.name}")
+        except discord.Forbidden:
+            logging.error(f"Missing permissions to edit 'Bot' role in {guild.name}")
     except discord.Forbidden:
-        logging.warning(f"Missing permissions to manage roles in server {guild.name}")
-    except discord.HTTPException as e:
-        logging.error(f"Error managing role in server {guild.name}: {e}")
+        logging.error(f"Missing permissions to manage roles in {guild.name}")
 
 # -------------------------------------------------------------------------
-# Commands
+# Bot Commands
 # -------------------------------------------------------------------------
 
 @client.tree.command(name="setchannel", description="Set the channel for cross-server communication.")
@@ -183,15 +245,18 @@ async def setchannel(interaction: discord.Interaction, channel: discord.TextChan
                                                     ephemeral=True)
             return
 
-        webhook = await channel.create_webhook(name="Cross-Server Bot Webhook")
+        # Create the webhook with an associated state
+        webhook = await channel.create_webhook(name="Cross-Server Bot Webhook", state=True)  # Set state=True
+
         WEBHOOK_URLS[f'{interaction.guild.id}_{channel.id}'] = {
             'url': webhook.url,
             'id': webhook.id
         }
         CHANNEL_FILTERS[f'{interaction.guild.id}_{channel.id}'] = filter
 
-        # Save webhook data to persistent storage
-        save_webhook_data() 
+        # Save webhook data and channel filters to persistent storage
+        save_webhook_data()
+        save_channel_filters()
 
         await interaction.response.send_message(
             f"Cross-server communication channel set to {channel.mention} with filter '{filter}'.", ephemeral=True)
@@ -239,22 +304,16 @@ async def listconnections(interaction: discord.Interaction):
 @has_permissions(administrator=True)
 async def resetconfig(interaction: discord.Interaction):
     try:
-        # Reload webhooks.json
-        global WEBHOOK_URLS
-        WEBHOOK_URLS = load_webhook_data()  # Use the load_webhook_data function
+        # Reload webhooks.json and channel_filters.json
+        global WEBHOOK_URLS, CHANNEL_FILTERS
+        WEBHOOK_URLS = load_webhook_data()
+        CHANNEL_FILTERS = load_channel_filters()
 
-        if interaction.response.is_done():
-            await interaction.followup.send("Bot configuration reloaded.", ephemeral=True)
-        else:
-            await interaction.response.send_message("Bot configuration reloaded.", ephemeral=True)
+        await interaction.response.send_message("Bot configuration reloaded.", ephemeral=True)
 
     except Exception as e:
         logging.error(f"Error reloading configuration: {e}")
-        if interaction.response.is_done():
-            await interaction.followup.send("An error occurred while reloading the configuration.", ephemeral=True)
-        else:
-            await interaction.response.send_message("An error occurred while reloading the configuration.",
-                                                    ephemeral=True)
+        await interaction.response.send_message("An error occurred while reloading the configuration.", ephemeral=True)
 
 @client.tree.command(name="about", description="Show information about the bot and its commands.")
 async def about(interaction: discord.Interaction):
@@ -269,7 +328,7 @@ async def about(interaction: discord.Interaction):
                         inline=False)
         embed.add_field(name="/listconnections", value="List all connected channels and their filters.", inline=False)
         embed.add_field(name="/resetconfig",
-                        value="Reload the bot's configuration (for debugging/development).", inline=False)
+                        value="Reset the bot's configuration.", inline=False)
         embed.add_field(name="/about", value="Show this information.", inline=False)
         await interaction.response.send_message(embed=embed, ephemeral=True)
     except Exception as e:
@@ -277,7 +336,13 @@ async def about(interaction: discord.Interaction):
         await interaction.response.send_message("An error occurred while processing the command.", ephemeral=True)
 
 # -------------------------------------------------------------------------
-# Helper Functions
+# BigLFG Commands (Removed)
+# -------------------------------------------------------------------------
+
+# ... (BigLFG commands removed)
+
+# -------------------------------------------------------------------------
+# Persistent Storage Functions
 # -------------------------------------------------------------------------
 
 def save_webhook_data():
@@ -287,25 +352,29 @@ def save_webhook_data():
     except Exception as e:
         logging.error(f"Error saving webhook data to {PERSISTENT_DATA_PATH}: {e}")
 
+def save_channel_filters():
+    try:
+        with open(CHANNEL_FILTERS_PATH, 'w') as f:
+            json.dump(CHANNEL_FILTERS, f, indent=4)
+    except Exception as e:
+        logging.error(f"Error saving channel filters to {CHANNEL_FILTERS_PATH}: {e}")
+
 # -------------------------------------------------------------------------
 # Message Relay Loop
 # -------------------------------------------------------------------------
 
+@tasks.loop(seconds=1)
 async def message_relay_loop():
-    while True:
-        try:
-            await asyncio.sleep(1)  # Check for new messages every second
-            # ... (your existing message relay logic)
+    # This loop will now run every second
+    # Your existing message relay logic can be placed here
+    pass  # Placeholder for your logic
 
-        except discord.Forbidden as e:
-            if "Missing Permissions" in str(e):
-                # Assuming you can get the guild object from the message or context
-                await manage_role(guild)  # Trigger role management
-            else:
-                # Handle other Forbidden errors
-                ... 
-        except Exception as e:
-            logging.error(f"Error in message relay loop: {e}")
+# Start the message relay loop after the bot is ready
+@client.event
+async def on_ready():
+    logging.info(f'Logged in as {client.user}')
+    await client.tree.sync()
+    message_relay_loop.start()  # Start the loop here
 
 # -------------------------------------------------------------------------
 # Run the Bot
