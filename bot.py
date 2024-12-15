@@ -162,14 +162,14 @@ async def on_message(message):
                             username=f"{message.author.name} from {message.guild.name}",
                             avatar_url=message.author.avatar.url if message.author.avatar else None
                         )
-                        if message is None:
-                            pass  # Suppress "Failed to send message to ..." error
-
-                        for reaction in message.reactions:
-                            try:
-                                await reaction.message.add_reaction(reaction.emoji)
-                            except discord.HTTPException as e:
-                                logging.error(f"Error adding reaction: {e}")
+                        
+                        # This is the fix for the 'NoneType' object error
+                        if message is not None:     
+                            for reaction in message.reactions:
+                                try:
+                                    await reaction.message.add_reaction(reaction.emoji)
+                                except discord.HTTPException as e:
+                                    logging.error(f"Error adding reaction: {e}")
 
                     except Exception as e:
                         logging.error(f"Error relaying message: {e}")
