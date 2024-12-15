@@ -224,7 +224,7 @@ async def on_raw_reaction_add(payload):
                 message = await channel.fetch_message(message_id)
                 await message.add_reaction(payload.emoji)
 
-@client.event
+@client.event  # This is the corrected placement
 async def on_raw_reaction_remove(payload):
     if payload.user_id == client.user.id:  # Ignore bot's own reactions
         return
@@ -238,7 +238,7 @@ async def on_raw_reaction_remove(payload):
                 message = await channel.fetch_message(message_id)
                 await message.remove_reaction(payload.emoji, client.user)  # Remove bot's reaction
 # --- ADDED REACTION HANDLING LOGIC END ---
-
+        
 # -------------------------------------------------------------------------
 # Persistent Storage Functions
 # -------------------------------------------------------------------------
