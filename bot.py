@@ -423,13 +423,9 @@ async def message_relay_loop():
                     avatar_url = message.author.avatar.url if message.author.avatar else None
 
                     for webhook_url in webhook_urls:
-                        async with aiohttp.ClientSession() as session:
-                            webhook = discord.Webhook.from_url(webhook_url, session=session)
-                            await webhook.send(
-                                content=message_content,
-                                username=username,
-                                avatar_url=avatar_url
-                            )
+                        message = await send_webhook_message(webhook_url, content=message_content, username=username, avatar_url=avatar_url)
+                        if message is None:
+                            pass  # Suppress "Failed to send message to ..." error
 
         except discord.Forbidden as e:
             if "Missing Permissions" in str(e):
