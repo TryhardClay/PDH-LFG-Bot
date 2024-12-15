@@ -245,130 +245,6 @@ async def biglfg(interaction: discord.Interaction):
         logging.error(f"An error occurred in biglfg command: {e}")
         await interaction.followup.send("An error occurred while processing your request.", ephemeral=True)
 
-@client.tree.command(name="connect")
-@has_permissions(manage_channels=True)
-async def connect(interaction: discord.Interaction, channel: discord.TextChannel):
-    """
-    Connects a channel to the BigLFG system.
-    """
-    try:
-        await interaction.response.defer()
-        webhook = await channel.create_webhook(name="BigLFG Webhook")
-        WEBHOOK_URLS[f"{interaction.guild.id}_{channel.id}"] = {
-            "url": webhook.url,
-            "last_message_id": None
-        }
-        save_webhook_data()
-        await interaction.followup.send(f"Channel {channel.mention} connected to BigLFG!", ephemeral=True)
-    except discord.Forbidden:
-        await interaction.followup.send("I don't have permission to create webhooks in that channel.", ephemeral=True)
-    except Exception as e:
-        logging.error(f"An error occurred in connect command: {e}")
-        await interaction.followup.send("An error occurred while processing your request.", ephemeral=True)
-
-@client.tree.command(name="disconnect")
-@has_permissions(manage_channels=True)
-async def disconnect(interaction: discord.Interaction, channel: discord.TextChannel):
-    """
-    Disconnects a channel from the BigLFG system.
-    """
-    try:
-        await interaction.response.defer()
-        channel_id = f"{interaction.guild.id}_{channel.id}"
-        if channel_id in WEBHOOK_URLS:
-            # Optionally delete the webhook here
-            # webhook = discord.Webhook.from_url(WEBHOOK_URLS[channel_id]["url"], session=client._session)
-            # await webhook.delete()
-            del WEBHOOK_URLS[channel_id]
-            save_webhook_data()
-            await interaction.followup.send(f"Channel {channel.mention} disconnected from BigLFG!", ephemeral=True)
-        else:
-            await interaction.followup.send("That channel is not connected to BigLFG.", ephemeral=True)
-    except Exception as e:
-        logging.error(f"An error occurred in disconnect command: {e}")
-        await interaction.followup.send("An error occurred while processing your request.", ephemeral=True)
-
-@client.tree.command(name="show_connections")
-@has_permissions(manage_channels=True)
-async def show_connections(interaction: discord.Interaction):
-    """
-    Shows the channels connected to the BigLFG system in this server.
-    """
-    try:
-        await interaction.response.defer()
-        connected_channels = []
-        for channel_id in WEBHOOK_URLS.keys():
-            guild_id, channel_id = channel_id.split('_')
-            if int(guild_id) == interaction.guild.id:
-                channel = client.get_channel(int(channel_id))
-                if channel:
-                    connected_channels.append(channel.mention)
-        if connected_channels:
-            await interaction.followup.send(f"Connected channels: {', '.join(connected_channels)}", ephemeral=True)
-        else:
-            await interaction.followup.send("No channels are connected to BigLFG in this server.", ephemeral=True)
-    except Exception as e:
-        logging.error(f"An error occurred in show_connections command: {e}")
-        await interaction.followup.send("An error occurred while processing your request.", ephemeral=True)
-
-# -------------------------------------------------------------------------
-# BigLFG Commands
-# -------------------------------------------------------------------------
-
-@client.tree.command(name="biglfg")
-async def biglfg(interaction: discord.Interaction):
-    """
-    Create a BigLFG game in all connected channels.
-    """
-    try:
-        await interaction.response.defer()  # Acknowledge the interaction
-
-        # Get game info from user (using channel name for now)
-        game = interaction.channel.name  
-
-        # Create the embed
-        embed = discord.Embed(
-            title="BigLFG",
-            description=f"**Game:** {game}",
-            color=discord.Color.blue()
-        )
-        embed.set_footer(text="Click the button to join!")
-
-        # Create buttons
-        join_button = discord.ui.Button(label="Join", style=discord.ButtonStyle.green, custom_id="join_button")
-        leave_button = discord.ui.Button(label="Leave", style=discord.ButtonStyle.red, custom_id="leave_button")
-
-        # Create a view to hold the buttons
-        view = discord.ui.View()
-        view.add_item(join_button)
-        view.add_item(leave_button)
-
-        # Send the embed to all connected channels
-        for channel_id, webhook_data in WEBHOOK_URLS.items():
-            try:
-                channel = client.get_channel(int(channel_id.split('_')[1]))
-                webhook = discord.Webhook.from_url(webhook_data['url'], session=client._session)
-                message = await webhook.send(
-                    embeds=[embed.to_dict()],
-                    username=f"{interaction.user.name} from {interaction.guild.name}",
-                    avatar_url=interaction.user.avatar.url if interaction.user.avatar else None,
-                    view=view
-                )
-                # Store the message ID for later updates or deletion if necessary
-                WEBHOOK_URLS[channel_id]['last_message_id'] = message.id
-                save_webhook_data()
-
-            except discord.HTTPException as e:
-                logging.error(f"Failed to send message to channel {channel_id}: {e}")
-            except Exception as e:
-                logging.error(f"An unexpected error occurred: {e}")
-
-        await interaction.followup.send("BigLFG message sent to all connected channels!", ephemeral=True)
-
-    except Exception as e:
-        logging.error(f"An error occurred in biglfg command: {e}")
-        await interaction.followup.send("An error occurred while processing your request.", ephemeral=True)
-
 
 @client.tree.command(name="connect")
 @has_permissions(manage_channels=True)
@@ -402,9 +278,9 @@ async def disconnect(interaction: discord.Interaction, channel: discord.TextChan
         await interaction.response.defer()
         channel_id = f"{interaction.guild.id}_{channel.id}"
         if channel_id in WEBHOOK_URLS:
-            # Optionally delete the webhook here
+            # Optionally delete the webhook here 
             # webhook = discord.Webhook.from_url(WEBHOOK_URLS[channel_id]["url"], session=client._session)
-            # await webhook.delete()
+            # await webhook.delete()  
             del WEBHOOK_URLS[channel_id]
             save_webhook_data()
             await interaction.followup.send(f"Channel {channel.mention} disconnected from BigLFG!", ephemeral=True)
@@ -413,7 +289,6 @@ async def disconnect(interaction: discord.Interaction, channel: discord.TextChan
     except Exception as e:
         logging.error(f"An error occurred in disconnect command: {e}")
         await interaction.followup.send("An error occurred while processing your request.", ephemeral=True)
-
 
 @client.tree.command(name="show_connections")
 @has_permissions(manage_channels=True)
