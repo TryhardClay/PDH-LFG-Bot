@@ -155,8 +155,8 @@ async def on_guild_join(guild):
             except discord.Forbidden:
                 pass  # Continue to the next channel if sending fails
 
-    # Manage the role when joining a server
-    await manage_role(guild)
+    # Role management is now handled elsewhere 
+    # await manage_role(guild)  <-- Removed this line
 
 @client.event
 async def on_message(message):
@@ -223,13 +223,37 @@ async def on_interaction(interaction):
             await interaction.response.send_message("You left the game!", ephemeral=True)
 
 # -------------------------------------------------------------------------
+# Event Handlers for Buttons 
+# -------------------------------------------------------------------------
+
+@client.event
+async def on_interaction(interaction):
+    if interaction.type == discord.InteractionType.component:
+        if interaction.data['custom_id'] == "join_button":
+            # Handle join logic here
+            embed = interaction.message.embeds[0]
+            embed.add_field(name="Players:", value=interaction.user.name, inline=False)
+            await interaction.response.edit_message(embed=embed)
+            await interaction.response.send_message("You joined the game!", ephemeral=True)
+        elif interaction.data['custom_id'] == "leave_button":
+            # Handle leave logic here
+            embed = interaction.message.embeds[0]
+            # Assuming the player's name is in a field named "Players:"
+            for i, field in enumerate(embed.fields):
+                if field.name == "Players:":
+                    embed.remove_field(i)
+                    break  # Remove only the first occurrence
+            await interaction.response.edit_message(embed=embed)
+            await interaction.response.send_message("You left the game!", ephemeral=True)
+
+# -------------------------------------------------------------------------
 # Role Management
 # -------------------------------------------------------------------------
 
 async def manage_role(guild):
     try:
         bot_role = discord.utils.get(guild.roles, name="Bot")
-        if not bot_role:
+        if not bot_role:  # <-- Check if the role already exists
             # Create the role if it doesn't exist
             try:
                 bot_role = await guild.create_role(name="Bot", reason="Bot needs this role for proper functioning")
