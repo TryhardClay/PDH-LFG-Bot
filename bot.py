@@ -472,6 +472,86 @@ async def biglfg(interaction: discord.Interaction):
             logging.error(f"Error sending error message: {e}")
 
 # -------------------------------------------------------------------------
+# BigLFG Commands
+# -------------------------------------------------------------------------
+
+@client.tree.command(name="biglfg")
+async def biglfg(interaction: discord.Interaction):
+    """
+    Create a BigLFG game in all connected channels.
+    """
+    try:
+        await interaction.response.defer()
+
+        # Define the embed
+        embed = discord.Embed(title="Looking for more players...", color=discord.Color.green())
+        embed.set_footer(text="Click a button to join or leave! (4 players needed)")
+
+        # Create buttons
+        join_button = discord.ui.Button(label="Join", style=discord.ButtonStyle.green, custom_id="join_button")
+        leave_button = discord.ui.Button(label="Leave", style=discord.ButtonStyle.red, custom_id="leave_button")
+
+        # Create a View to hold the buttons
+        view = discord.ui.View()
+        view.add_item(join_button)
+        view.add_item(leave_button)
+
+        # Store the message IDs of all sent embeds
+        sent_message_ids = []
+
+        # Send the embed to all connected channels
+        for channel_id, webhook_data in WEBHOOK_URLS.items():
+            try:
+                message = await send_webhook_message(
+                    webhook_data['url'],
+                    embeds=[embed.to_dict()],
+                    username=f"{interaction.user.name} from {interaction.guild.name}",
+                    avatar_url=interaction.user.avatar.url if interaction.user.avatar else None,
+                    view=view
+                )
+                if message is not None:
+                    sent_message_ids.append(message.id)
+            except Exception as e:
+                logging.error(f"Error relaying embed: {e}")
+
+        # --- ADDED REACTION HANDLING LOGIC START ---
+        @client.event
+        async def on_raw_reaction_add(payload):
+            if payload.member.bot:
+                return
+
+            # Check if the reaction is on one of the sent embeds
+            if payload.message_id in sent_message_ids:
+                # Add the reaction to all other copies of the embed
+                for message_id in sent_message_ids:
+                    if message_id != payload.message_id:
+                        channel = client.get_channel(payload.channel_id)
+                        message = await channel.fetch_message(message_id)
+                        await message.add_reaction(payload.emoji)
+
+        @client.event
+        async def on_raw_reaction_remove(payload):
+            if payload.user_id == client.user.id:  # Ignore bot's own reactions
+                return
+
+            # Check if the reaction removal is on one of the sent embeds
+            if payload.message_id in sent_message_ids:
+                # Remove the reaction from all other copies of the embed
+                for message_id in sent_message_ids:
+                    if message_id != payload.message_id:
+                        channel = client.get_channel(payload.channel_id)
+                        message = await channel.fetch_message(message_id)
+                        await message.remove_reaction(payload.emoji, client.user)  # Remove bot's reaction
+        # --- ADDED REACTION HANDLING LOGIC END ---
+
+    except Exception as e:
+        logging.error(f"Error in /biglfg command: {e}")
+        try:
+            await interaction.followup.send("An error occurred while creating the BigLFG game.", ephemeral=True)
+        except discord.HTTPException as e:
+            logging.error(f"Error sending error message: {e}")
+
+# -------------------------------------------------------------------------
 # Event Handlers for Buttons
 # -------------------------------------------------------------------------
 
