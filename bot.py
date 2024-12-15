@@ -514,10 +514,6 @@ async def biglfg(interaction: discord.Interaction):
             except Exception as e:
                 logging.error(f"Error relaying embed: {e}")
 
-        # --- ADDED REACTION HANDLING LOGIC START ---
-        # This section has been removed to prevent re-registration of event handlers
-        # --- ADDED REACTION HANDLING LOGIC END ---
-
     except Exception as e:
         logging.error(f"Error in /biglfg command: {e}")
         try:
@@ -526,7 +522,7 @@ async def biglfg(interaction: discord.Interaction):
             logging.error(f"Error sending error message: {e}")
 
 # -------------------------------------------------------------------------
-# Event Handlers for Buttons
+# Event Handlers for Buttons 
 # -------------------------------------------------------------------------
 
 @client.event
