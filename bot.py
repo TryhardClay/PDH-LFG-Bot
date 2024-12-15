@@ -77,39 +77,46 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
     async with aiohttp.ClientSession() as session:
         data = {}
         if content:
-            data['content'] = content
+            data["content"] = content
         if embeds:
-            data['embeds'] = embeds
+            data["embeds"] = embeds
         if username:
-            data['username'] = username
+            data["username"] = username
         if avatar_url:
-            data['avatar_url'] = avatar_url
+            data["avatar_url"] = avatar_url
+
         try:
             async with session.post(webhook_url, json=data) as response:
-                # Log the full response object and headers for debugging
                 logging.info(f"Full response: {response}")
+                logging.info(response)
                 logging.info(f"Response headers: {response.headers}")
 
                 if response.status == 204:
                     logging.info("Message sent successfully.")
-                    
+                    # Try to extract the message ID from the Location header
                     location = response.headers.get('Location')
                     if location:
-                        message_id = int(location.split('/')[-1])
-                        webhook = discord.Webhook.from_url(webhook_url, session=session)
-                        message = await webhook.fetch_message(message_id)
+                        try:
+                            message_id = int(location.split('/')[-1])
+                            logging.info(f"Extracted message ID: {message_id}")
+                            return message_id
+                        except ValueError:
+                            logging.error(f"Failed to extract message ID from Location header: {location}")
                     else:
-                        logging.error(f"Missing 'Location' header in response: {response}")
-                        return None 
-
-                    return message
-                elif response.status == 429:
-                    logging.warning("Rate limited!")
-                    # TODO: Implement rate limit handling
+                        # Suppress the "Missing 'Location' header" error message
+                        pass  # Do nothing if the 'Location' header is missing
                 else:
                     logging.error(f"Failed to send message. Status code: {response.status}")
+                    logging.error(await response.text())
+
         except aiohttp.ClientError as e:
-            logging.error(f"Error sending webhook message: {e}")
+            logging.error(f"aiohttp.ClientError: {e}")
+        except discord.HTTPException as e:
+            logging.error(f"discord.HTTPException: {e}")
+        except Exception as e:
+            logging.error(f"An unexpected error occurred: {e}")
+
+    return None  # Indicate that the message sending failed
 
 # -------------------------------------------------------------------------
 # Event Handlers
