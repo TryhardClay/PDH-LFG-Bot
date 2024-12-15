@@ -87,18 +87,7 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
 
         try:
             async with session.post(webhook_url, json=data) as response:
-                if response.status == 204:
-                    # Try to extract the message ID from the Location header
-                    location = response.headers.get('Location')
-                    if location:
-                        try:
-                            message_id = int(location.split('/')[-1])
-                            return message_id
-                        except ValueError:
-                            logging.error(f"Failed to extract message ID from Location header: {location}")
-                    else:
-                        pass  # Suppress "Missing 'Location' header" error
-                else:
+                if response.status != 204:  # Only log if the message failed to send
                     logging.error(f"Failed to send message. Status code: {response.status}")
                     logging.error(await response.text())
 
