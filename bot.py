@@ -199,7 +199,7 @@ async def on_guild_remove(guild):
     pass  # Role management is handled elsewhere
 
 # -------------------------------------------------------------------------
-# Event Handlers for Buttons
+# Event Handlers for Buttons 
 # -------------------------------------------------------------------------
 
 @client.event
@@ -207,40 +207,20 @@ async def on_interaction(interaction):
     if interaction.type == discord.InteractionType.component:
         if interaction.data['custom_id'] == "join_button":
             # Handle join logic here
+            embed = interaction.message.embeds[0]
+            embed.add_field(name="Players:", value=interaction.user.name, inline=False)
+            await interaction.response.edit_message(embed=embed)
             await interaction.response.send_message("You joined the game!", ephemeral=True)
         elif interaction.data['custom_id'] == "leave_button":
             # Handle leave logic here
+            embed = interaction.message.embeds[0]
+            # Assuming the player's name is in a field named "Players:"
+            for i, field in enumerate(embed.fields):
+                if field.name == "Players:":
+                    embed.remove_field(i)
+                    break  # Remove only the first occurrence
+            await interaction.response.edit_message(embed=embed)
             await interaction.response.send_message("You left the game!", ephemeral=True)
-
-# --- ADDED REACTION HANDLING LOGIC START ---
-@client.event
-async def on_raw_reaction_add(payload):
-    if payload.member.bot:
-        return
-
-    # Check if the reaction is on one of the sent embeds
-    if payload.message_id in sent_message_ids:
-        # Add the reaction to all other copies of the embed
-        for message_id in sent_message_ids:
-            if message_id != payload.message_id:
-                channel = client.get_channel(payload.channel_id)
-                message = await channel.fetch_message(message_id)
-                await message.add_reaction(payload.emoji)
-
-@client.event
-async def on_raw_reaction_remove(payload):
-    if payload.user_id == client.user.id:  # Ignore bot's own reactions
-        return
-
-    # Check if the reaction removal is on one of the sent embeds
-    if payload.message_id in sent_message_ids:
-        # Remove the reaction from all other copies of the embed
-        for message_id in sent_message_ids:
-            if message_id != payload.message_id:
-                channel = client.get_channel(payload.channel_id)
-                message = await channel.fetch_message(message_id)
-                await message.remove_reaction(payload.emoji, client.user)  # Remove bot's reaction
-# --- ADDED REACTION HANDLING LOGIC END ---
 
 # -------------------------------------------------------------------------
 # Role Management
@@ -392,7 +372,7 @@ async def biglfg(interaction: discord.Interaction):
         embed = discord.Embed(title="Looking for more players...", color=discord.Color.green())
         embed.set_footer(text="Click a button to join or leave! (4 players needed)")
 
-        # Create buttons
+        # Create buttons with styling
         join_button = discord.ui.Button(label="Join", style=discord.ButtonStyle.green, custom_id="join_button")
         leave_button = discord.ui.Button(label="Leave", style=discord.ButtonStyle.red, custom_id="leave_button")
 
@@ -428,20 +408,6 @@ async def biglfg(interaction: discord.Interaction):
             await interaction.followup.send("An error occurred while creating the BigLFG game.", ephemeral=True)
         except discord.HTTPException as e:
             logging.error(f"Error sending error message: {e}")
-
-# -------------------------------------------------------------------------
-# Event Handlers for Buttons 
-# -------------------------------------------------------------------------
-
-@client.event
-async def on_interaction(interaction):
-    if interaction.type == discord.InteractionType.component:
-        if interaction.data['custom_id'] == "join_button":
-            # Handle join logic here
-            await interaction.response.send_message("You joined the game!", ephemeral=True)
-        elif interaction.data['custom_id'] == "leave_button":
-            # Handle leave logic here
-            await interaction.response.send_message("You left the game!", ephemeral=True)
 
 # -------------------------------------------------------------------------
 # Role Management
