@@ -83,6 +83,55 @@ def save_channel_filters():
     except Exception as e:
         logging.error(f"Error saving channel filters to {CHANNEL_FILTERS_PATH}: {e}")
 
+async def send_webhook_message(webhook_url, content=None, embeds=None, username=None, avatar_url=None, view=None):
+    async with aiohttp.ClientSession() as session:
+        data = {}
+        if content:
+            data['content'] = content
+        if embeds:
+            data['embeds'] = embeds
+        if username:
+            data['username'] = username
+        if avatar_url:
+            data['avatar_url'] = avatar_url
+        try:
+            async with session.post(webhook_url, json=data) as response:
+                if response.status == 204:
+                    logging.info("Message sent successfully.")
+
+                    # No longer try to get the Location header
+                    # Assume the message was sent successfully
+
+                    try:
+                        # Add view to the webhook message
+                        webhook = discord.Webhook.from_url(webhook_url, session=session)
+                        message = await webhook.send(
+                            content=content,
+                            embeds=embeds,
+                            username=username,
+                            avatar_url=avatar_url,
+                            wait=True,
+                            view=view
+                        )
+                        return message
+                    except Exception as e:
+                        logging.error(f"Error fetching last message from webhook: {e}")
+                        return None
+
+                elif response.status == 429:
+                    logging.warning("Rate limited!")
+                    # Implement rate limit handling
+                    retry_after = float(response.headers.get("Retry-After", 1))
+                    logging.warning(f"Retrying in {retry_after} seconds...")
+                    await asyncio.sleep(retry_after)
+                    return await send_webhook_message(webhook_url, content, embeds, username, avatar_url, view)  # Retry
+                else:
+                    logging.error(f"Failed to send message. Status code: {response.status}")
+                    return None
+        except aiohttp.ClientError as e:
+            logging.error(f"Error sending webhook message: {e}")
+            return None
+
 # -------------------------------------------------------------------------
 # Bot Commands
 # -------------------------------------------------------------------------
@@ -91,38 +140,92 @@ def save_channel_filters():
 @has_permissions(manage_channels=True)
 async def setchannel(interaction: discord.Interaction, channel: discord.TextChannel, filter: str):
     try:
-        # ... (setchannel command logic) ...
+        # Convert filter to lowercase for consistency
+        filter = filter.lower()
+
+        # Check if the filter is valid
+        if filter not in ("casual", "cpdh"):
+            await interaction.response.send_message("Invalid filter. Please specify either 'casual' or 'cpdh'.",
+                                                    ephemeral=True)
+            return
+
+        # Create the webhook with an associated state
+        webhook = await channel.create_webhook(name="Cross-Server Bot Webhook", state=True)  # Set state=True
+
+        WEBHOOK_URLS[f'{interaction.guild.id}_{channel.id}'] = {
+            'url': webhook.url,
+            'id': webhook.id
+        }
+        CHANNEL_FILTERS[f'{interaction.guild.id}_{channel.id}'] = filter
+
+        # Save webhook data and channel filters to persistent storage
+        save_webhook_data()
+        save_channel_filters()
+
+        await interaction.response.send_message(
+            f"Cross-server communication channel set to {channel.mention} with filter '{filter}'.", ephemeral=True)
     except discord.Forbidden:
-        # ... (error handling) ...
+        await interaction.response.send_message("I don't have permission to create webhooks in that channel.",
+                                                ephemeral=True)
 
 @client.tree.command(name="disconnect", description="Disconnect a channel from cross-server communication.")
 @has_permissions(manage_channels=True)
 async def disconnect(interaction: discord.Interaction, channel: discord.TextChannel):
     try:
-        # ... (disconnect command logic) ...
+        channel_id = f'{interaction.guild.id}_{channel.id}'
+        if channel_id in WEBHOOK_URLS:
+            del WEBHOOK_URLS[channel_id]
+
+            # Save webhook data to persistent storage
+            save_webhook_data()
+
+            await interaction.response.send_message(
+                f"Channel {channel.mention} disconnected from cross-server communication.",
+                ephemeral=True)
+        else:
+            await interaction.response.send_message(
+                f"Channel {channel.mention} is not connected to cross-server communication.", ephemeral=True)
     except Exception as e:
-        # ... (error handling) ...
+        logging.error(f"Error disconnecting channel: {e}")
+        await interaction.response.send_message("An error occurred while disconnecting the channel.", ephemeral=True)
 
 @client.tree.command(name="listconnections", description="List connected channels for cross-server communication.")
 @has_permissions(manage_channels=True)
 async def listconnections(interaction: discord.Interaction):
     try:
-        # ... (listconnections command logic) ...
+        if WEBHOOK_URLS:
+            connections = "\n".join(
+                [f"- <#{channel.split('_')[1]}> in {client.get_guild(int(channel.split('_')[0])).name} (filter: {CHANNEL_FILTERS.get(channel, 'none')})"
+                 for channel in WEBHOOK_URLS])
+            await interaction.response.send_message(f"Connected channels:\n{connections}", ephemeral=True)
+        else:
+            await interaction.response.send_message("There are no connected channels.", ephemeral=True)
     except Exception as e:
-        # ... (error handling) ...
+        logging.error(f"Error listing connections: {e}")
+        await interaction.response.send_message("An error occurred while listing connections.", ephemeral=True)
 
 @client.tree.command(name="resetconfig", description="Reload the bot's configuration (for debugging/development).")
 @has_permissions(administrator=True)
 async def resetconfig(interaction: discord.Interaction):
     try:
-        # ... (resetconfig command logic) ...
+        # Reload webhooks.json and channel_filters.json
+        global WEBHOOK_URLS, CHANNEL_FILTERS
+        WEBHOOK_URLS = load_webhook_data()
+        CHANNEL_FILTERS = load_channel_filters()
+
+        await interaction.response.send_message("Bot configuration reloaded.", ephemeral=True)
+
     except Exception as e:
-        # ... (error handling) ...
+        logging.error(f"Error reloading configuration: {e}")
+        await interaction.response.send_message("An error occurred while reloading the configuration.", ephemeral=True)
 
 @client.tree.command(name="about", description="Show information about the bot and its commands.")
 async def about(interaction: discord.Interaction):
     try:
-        # ... (about command logic) ...
+        embed = discord.Embed(title="Cross-Server Communication Bot",
+                              description="This bot allows you to connect channels in different servers to relay messages and facilitate communication.",
+                              color=discord.Color.blue())
+        # ... (rest of the about command logic) ...
     except Exception as e:
         # ... (error handling) ...
 
@@ -194,7 +297,7 @@ async def on_message(message):
 @client.event
 async def on_guild_remove(guild):
     pass  # Role management is handled elsewhere
-    
+
 # -------------------------------------------------------------------------
 # Event Handlers for Buttons
 # -------------------------------------------------------------------------
@@ -210,33 +313,6 @@ async def on_interaction(interaction):
             await interaction.response.send_message("You left the game!", ephemeral=True)
 
 # --- ADDED REACTION HANDLING LOGIC START ---
-
-# -------------------------------------------------------------------------
-# Role Management
-# -------------------------------------------------------------------------
-
-async def manage_role(guild):
-    try:
-        bot_role = discord.utils.get(guild.roles, name="Bot")
-        if not bot_role:
-            # Create the role if it doesn't exist
-            try:
-                bot_role = await guild.create_role(name="Bot", reason="Bot needs this role for proper functioning")
-                logging.info(f"Created 'Bot' role in {guild.name}")
-            except discord.Forbidden:
-                logging.error(f"Missing permissions to create 'Bot' role in {guild.name}")
-                return
-
-        # Ensure the bot has the necessary permissions
-        try:
-            permissions = discord.Permissions(manage_webhooks=True, manage_messages=True, add_reactions=True)
-            await bot_role.edit(permissions=permissions, reason="Bot needs these permissions")
-            logging.info(f"Updated 'Bot' role permissions in {guild.name}")
-        except discord.Forbidden:
-            logging.error(f"Missing permissions to edit 'Bot' role in {guild.name}")
-    except discord.Forbidden:
-        logging.error(f"Missing permissions to manage roles in {guild.name}")
-        
 @client.event
 async def on_raw_reaction_add(payload):
     if payload.member.bot:
@@ -251,7 +327,7 @@ async def on_raw_reaction_add(payload):
                 message = await channel.fetch_message(message_id)
                 await message.add_reaction(payload.emoji)
 
-@client.event  # This is the corrected placement
+@client.event
 async def on_raw_reaction_remove(payload):
     if payload.user_id == client.user.id:  # Ignore bot's own reactions
         return
@@ -265,7 +341,7 @@ async def on_raw_reaction_remove(payload):
                 message = await channel.fetch_message(message_id)
                 await message.remove_reaction(payload.emoji, client.user)  # Remove bot's reaction
 # --- ADDED REACTION HANDLING LOGIC END ---
-        
+
 # -------------------------------------------------------------------------
 # Persistent Storage Functions
 # -------------------------------------------------------------------------
