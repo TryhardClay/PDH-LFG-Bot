@@ -266,26 +266,37 @@ async def listconnections(interaction: discord.Interaction):
         logging.error(f"Error listing connections: {e}")
         await interaction.response.send_message("An error occurred while listing connections.", ephemeral=True)
 
-@client.tree.command(name="updateconfig", description="Reload the bot's configuration (for debugging/development).")
+@client.tree.command(name="updateconfig", description="Reload the bot's configuration and resync commands.")
 @has_permissions(administrator=True)
-async def updateconfig(interaction: discord.Interaction):  # Renamed function to updateconfig
+async def updateconfig(interaction: discord.Interaction):
     try:
         # Reload webhooks.json
         global WEBHOOK_URLS
-        WEBHOOK_URLS = load_webhook_data()  # Use the load_webhook_data function
+        WEBHOOK_URLS = load_webhook_data()
+
+        # Resync commands
+        await client.tree.sync()
+
+        # Reconnect channels  
+        for channel_id, webhook_data in WEBHOOK_URLS.items():
+            channel = client.get_channel(int(channel_id.split('_')[1]))
+            if channel:
+                try:
+                    await channel.create_webhook(name="Cross-Server Bot Webhook")
+                except discord.HTTPException as e:
+                    logging.error(f"Failed to recreate webhook for channel {channel_id}: {e}")
 
         if interaction.response.is_done():
-            await interaction.followup.send("Bot configuration reloaded.", ephemeral=True)
+            await interaction.followup.send("Bot configuration and commands updated.", ephemeral=True)
         else:
-            await interaction.response.send_message("Bot configuration reloaded.", ephemeral=True)
+            await interaction.response.send_message("Bot configuration and commands updated.", ephemeral=True)
 
     except Exception as e:
-        logging.error(f"Error reloading configuration: {e}")
+        logging.error(f"Error updating configuration: {e}")
         if interaction.response.is_done():
-            await interaction.followup.send("An error occurred while reloading the configuration.", ephemeral=True)
+            await interaction.followup.send("An error occurred while updating the configuration.", ephemeral=True)
         else:
-            await interaction.response.send_message("An error occurred while reloading the configuration.",
-                                                    ephemeral=True)
+            await interaction.response.send_message("An error occurred while updating the configuration.", ephemeral=True)
 
 @client.tree.command(name="about", description="Show information about the bot and its commands.")
 async def about(interaction: discord.Interaction):
