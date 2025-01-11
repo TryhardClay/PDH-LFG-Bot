@@ -310,8 +310,6 @@ async def about(interaction: discord.Interaction):
 @client.tree.command(name="biglfg", description="Create a cross-server LFG request.")
 async def biglfg(interaction: discord.Interaction):
     try:
-        await interaction.response.defer()  # Defer the response
-
         source_channel_id = f'{interaction.guild.id}_{interaction.channel.id}'
         source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
 
@@ -366,27 +364,20 @@ async def biglfg(interaction: discord.Interaction):
                                             players.append(user.name)
                                             if len(players) == 4:
                                                 await update_embed(message, players)
-                                                # Important: Follow up on the interaction
-                                                await interaction.followup.send("LFG request sent!", ephemeral=True)
-                                                return
+                                                return  # Exit the loop if 4 players are found
 
                 await asyncio.sleep(1)
 
+            # Update embeds to "timed out" if the loop completes without 4 players
             for destination_channel_id, message in sent_messages.items():
-                if message is not None:  # Ensure message is not None before updating
+                if message is not None:
                     await update_embed(message, players)
-                    # Important: Follow up on the interaction if the loop completes
-                    await interaction.followup.send("LFG request sent!", ephemeral=True) 
 
         except Exception as e:
             logging.error(f"Error during LFG process: {e}")
 
     except Exception as e:
         logging.error(f"Error in /biglfg command: {e}")
-        try:
-            await interaction.followup.send("An error occurred while processing the LFG request.", ephemeral=True)
-        except discord.HTTPException as e:
-            logging.error(f"Error sending error message: {e}")
 
 # -------------------------------------------------------------------------
 # Helper Functions
