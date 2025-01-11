@@ -347,7 +347,7 @@ async def send_lfgs(interaction):
                 new_embed = discord.Embed(title="Your game is ready!", color=discord.Color.blue())
                 new_embed.add_field(name="Players:", value="\n".join(players), inline=False)
             else:
-                new_embed = discord.Embed(title="This request has timed out.", color=discord.Color.red())
+                new_embed = discord.Embed(title="This game request has expired due to inactivity.", color=discord.Color.red())
             try:
                 await message.edit(embed=new_embed)
             except discord.HTTPException as e:
@@ -355,7 +355,7 @@ async def send_lfgs(interaction):
 
         try:
             players = []
-            for i in range(15 * 60):
+            for i in range(15 * 60):  # 15 minutes (15 * 60 seconds)
                 for destination_channel_id, message in sent_messages.items():
                     # Ensure message is not None before accessing its attributes
                     if message is not None:
@@ -368,16 +368,16 @@ async def send_lfgs(interaction):
                                             players.append(user.name)
                                             if len(players) == 4:
                                                 await update_embed(message, players)
-                                                await interaction.followup.send("LFG request sent!", ephemeral=True)  # This will replace the "thinking" message
+                                                await interaction.followup.send("LFG request sent!", ephemeral=True)
                                                 return  # Exit the loop if 4 players are found
 
                 await asyncio.sleep(1)
 
-            # Update embeds to "timed out" if the loop completes without 4 players
+            # If the loop completes without 4 players, update the embed to "expired"
             for destination_channel_id, message in sent_messages.items():
                 if message is not None:
                     await update_embed(message, players)
-                    await interaction.followup.send("LFG request sent!", ephemeral=True)  # This will replace the "thinking" message
+                    await interaction.followup.send("LFG request sent!", ephemeral=True)
 
         except Exception as e:
             logging.error(f"Error during LFG process: {e}")
@@ -385,7 +385,7 @@ async def send_lfgs(interaction):
     except Exception as e:
         logging.error(f"Error in /biglfg command: {e}")
         try:
-            await interaction.followup.send("An error occurred while processing the LFG request.", ephemeral=True)  # This will replace the "thinking" message
+            await interaction.followup.send("An error occurred while processing the LFG request.", ephemeral=True)
         except discord.HTTPException as e:
             logging.error(f"Error sending error message: {e}")
 
