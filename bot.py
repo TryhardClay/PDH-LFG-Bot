@@ -5,6 +5,8 @@ import json
 import os
 import logging
 import uuid
+import datetime
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from discord.ext import commands, tasks
 from discord.ext.commands import has_permissions
 
@@ -311,7 +313,7 @@ async def about(interaction: discord.Interaction):
 @client.tree.command(name="biglfg", description="Create a cross-server LFG request.")
 async def biglfg(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)  # Acknowledge with a hidden "thinking"
-    asyncio.create_task(send_lfgs(interaction)) 
+    asyncio.create_task(send_lfgs(interaction))
 
 async def send_lfgs(interaction):
     try:
@@ -319,7 +321,7 @@ async def send_lfgs(interaction):
         source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
 
         # Generate a unique ID for this LFG request
-        lfg_id = str(uuid.uuid4()) 
+        lfg_id = str(uuid.uuid4())
 
         embed = discord.Embed(title="Looking for more players...", color=discord.Color.green())
         embed.set_footer(text="React with 👍 to join! (4 players needed)")
@@ -329,7 +331,11 @@ async def send_lfgs(interaction):
         # Include the originating channel in the loop
         for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
             destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
-            if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
+
+            # Apply filtering based on CHANNEL_FILTERS
+            if (source_filter == destination_filter or
+                source_filter == 'none' or
+                destination_filter == 'none'):
                 try:
                     message = await send_webhook_message(
                         webhook_data['url'],
@@ -346,7 +352,19 @@ async def send_lfgs(interaction):
                 except Exception as e:
                     logging.error(f"Error sending LFG request: {e}")
 
-        async def update_embed(message, players, lfg_id):  # Add lfg_id as an argument
+        # Initialize the scheduler
+        scheduler = AsyncIOScheduler()
+        scheduler.start()
+
+        # Schedule the timeout task
+        scheduler.add_job(
+            update_embed_timeout,
+            'date',
+            run_date=datetime.datetime.now() + datetime.timedelta(minutes=15),
+            args=[sent_messages, lfg_id],
+        )
+
+        async def update_embed(message, players, lfg_id):
             if len(players.get(lfg_id, {})) == 4:
                 new_embed = discord.Embed(title="Your game is ready!", color=discord.Color.blue())
                 player_names = [client.get_user(player).name for player in players[lfg_id]]
@@ -358,39 +376,38 @@ async def send_lfgs(interaction):
             except discord.HTTPException as e:
                 logging.error(f"Error editing embed: {e}")
 
-
-        try:
-            players = {}  # Use a dictionary to store players per LFG ID
-            timeout_reached = False  # Flag to indicate if timeout was reached
-
-            for i in range(15 * 60):  # 15 minutes (15 * 60 seconds)
-                for destination_channel_id, message in sent_messages.items():
-                    # Ensure message is not None before accessing its attributes
-                    if message is not None:
-                        cache_msg = discord.utils.get(client.cached_messages, id=message.id)
-                        if cache_msg:
-                            for reaction in cache_msg.reactions:
-                                if str(reaction.emoji) == "👍":
-                                    async for user in reaction.users():
-                                        if user != client.user and user.id not in players.get(lfg_id, {}): 
-                                            # Store player ID associated with the LFG ID
-                                            players.setdefault(lfg_id, set()).add(user.id)
-                                            if len(players.get(lfg_id, {})) == 4:
-                                                await update_embed(message, players, lfg_id)  # Pass lfg_id to update_embed
-                                                await interaction.followup.send("LFG request sent!", ephemeral=True)
-                                                return  # Exit the loop if 4 players are found
-
-                await asyncio.sleep(1)
-
-            else:  # This block executes only if the loop completes without a break
-                timeout_reached = True
-
-            # If the loop completes without 4 players, update the embed to "expired"
+        async def update_embed_timeout(sent_messages, lfg_id):
             for destination_channel_id, message in sent_messages.items():
                 if message is not None:
-                    if timeout_reached:  # Update only if timeout reached
-                        await update_embed(message, players, lfg_id)  # Pass lfg_id to update_embed
-                    await interaction.followup.send("LFG request sent!", ephemeral=True)
+                    await update_embed(message, {}, lfg_id)
+
+        try:
+            players = {}
+
+            # Create a task to monitor reactions
+            async def monitor_reactions():
+                nonlocal players
+                for i in range(15 * 60):
+                    for destination_channel_id, message in sent_messages.items():
+                        if message is not None:
+                            cache_msg = discord.utils.get(client.cached_messages, id=message.id)
+                            if cache_msg:
+                                for reaction in cache_msg.reactions:
+                                    if str(reaction.emoji) == "👍":
+                                        async for user in reaction.users():
+                                            if user != client.user and user.id not in players.get(lfg_id, {}):
+                                                players.setdefault(lfg_id, set()).add(user.id)
+                                                if len(players.get(lfg_id, {})) == 4:
+                                                    await update_embed(message, players, lfg_id)
+                                                    await interaction.followup.send("LFG request sent!", ephemeral=True)
+                                                    return  # Exit the monitor_reactions task
+
+                    await asyncio.sleep(1)
+
+            # Start the reaction monitoring task
+            asyncio.create_task(monitor_reactions())
+
+            # ... (The rest of your existing code in send_lfgs) ...
 
         except Exception as e:
             logging.error(f"Error during LFG process: {e}")
