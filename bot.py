@@ -361,6 +361,8 @@ async def send_lfgs(interaction):
 
         try:
             players = {}  # Use a dictionary to store players per LFG ID
+            timeout_reached = False  # Flag to indicate if timeout was reached
+
             for i in range(15 * 60):  # 15 minutes (15 * 60 seconds)
                 for destination_channel_id, message in sent_messages.items():
                     # Ensure message is not None before accessing its attributes
@@ -380,10 +382,14 @@ async def send_lfgs(interaction):
 
                 await asyncio.sleep(1)
 
+            else:  # This block executes only if the loop completes without a break
+                timeout_reached = True
+
             # If the loop completes without 4 players, update the embed to "expired"
             for destination_channel_id, message in sent_messages.items():
                 if message is not None:
-                    await update_embed(message, players, lfg_id)  # Pass lfg_id to update_embed
+                    if timeout_reached:  # Update only if timeout reached
+                        await update_embed(message, players, lfg_id)  # Pass lfg_id to update_embed
                     await interaction.followup.send("LFG request sent!", ephemeral=True)
 
         except Exception as e:
