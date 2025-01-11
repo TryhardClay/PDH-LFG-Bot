@@ -309,6 +309,9 @@ async def about(interaction: discord.Interaction):
 
 @client.tree.command(name="biglfg", description="Create a cross-server LFG request.")
 async def biglfg(interaction: discord.Interaction):
+    asyncio.create_task(send_lfgs(interaction)) # Immediately delegate to a separate task
+
+async def send_lfgs(interaction):
     try:
         source_channel_id = f'{interaction.guild.id}_{interaction.channel.id}'
         source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
