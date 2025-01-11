@@ -364,17 +364,18 @@ async def send_lfgs(interaction):
             args=[sent_messages, lfg_id],
         )
 
-        async def update_embed(message, players, lfg_id, timeout_reached=False):  # Add timeout_reached argument
+        async def update_embed(message, players, lfg_id, timeout_reached=False):
             if len(players.get(lfg_id, {})) == 4:
                 new_embed = discord.Embed(title="Your game is ready!", color=discord.Color.blue())
                 player_names = [client.get_user(player).name for player in players[lfg_id]]
                 new_embed.add_field(name="Players:", value="\n".join(player_names), inline=False)
             else:
-                if timeout_reached:  # Check if the timeout has been reached
+                if timeout_reached:
                     new_embed = discord.Embed(title="This game request has expired due to inactivity.", color=discord.Color.red())
                 else:
-                    new_embed = discord.Embed(title="Looking for more players...", color=discord.Color.green())  # Keep the original embed if not timed out
-                    new_embed.set_footer(text="React with 👍 to join! (4 players needed)")
+                    # Retain the original embed if not timed out
+                    new_embed = discord.Embed(title="Looking for more players...", color=discord.Color.green())  
+                    new_embed.set_footer(text="React with 👍 to join! (4 players needed)")  
             try:
                 await message.edit(embed=new_embed)
             except discord.HTTPException as e:
@@ -383,7 +384,7 @@ async def send_lfgs(interaction):
         async def update_embed_timeout(sent_messages, lfg_id):
             for destination_channel_id, message in sent_messages.items():
                 if message is not None:
-                    await update_embed(message, {}, lfg_id, timeout_reached=True)  # Set timeout_reached to True
+                    await update_embed(message, {}, lfg_id, timeout_reached=True)
 
         try:
             players = {}
