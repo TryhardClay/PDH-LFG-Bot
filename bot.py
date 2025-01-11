@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import logging
+import uuid
 from discord.ext import commands, tasks
 from discord.ext.commands import has_permissions
 
@@ -317,6 +318,9 @@ async def send_lfgs(interaction):
         source_channel_id = f'{interaction.guild.id}_{interaction.channel.id}'
         source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
 
+        # Generate a unique ID for this LFG request
+        lfg_id = str(uuid.uuid4()) 
+
         embed = discord.Embed(title="Looking for more players...", color=discord.Color.green())
         embed.set_footer(text="React with 👍 to join! (4 players needed)")
 
@@ -345,7 +349,7 @@ async def send_lfgs(interaction):
         async def update_embed(message, players):
             if len(players) == 4:
                 new_embed = discord.Embed(title="Your game is ready!", color=discord.Color.blue())
-                new_embed.add_field(name="Players:", value="\n".join(players), inline=False)
+                new_embed.add_field(name="Players:", value="\n".join([client.get_user(player).name for player in players]), inline=False)  # Get player names from IDs
             else:
                 new_embed = discord.Embed(title="This game request has expired due to inactivity.", color=discord.Color.red())
             try:
@@ -354,7 +358,7 @@ async def send_lfgs(interaction):
                 logging.error(f"Error editing embed: {e}")
 
         try:
-            players = []
+            players = {}  # Use a dictionary to store players per LFG ID
             for i in range(15 * 60):  # 15 minutes (15 * 60 seconds)
                 for destination_channel_id, message in sent_messages.items():
                     # Ensure message is not None before accessing its attributes
@@ -364,10 +368,11 @@ async def send_lfgs(interaction):
                             for reaction in cache_msg.reactions:
                                 if str(reaction.emoji) == "👍":
                                     async for user in reaction.users():
-                                        if user != client.user and user.name not in players:
-                                            players.append(user.name)
-                                            if len(players) == 4:
-                                                await update_embed(message, players)
+                                        if user != client.user and user.id not in players.get(lfg_id, {}): 
+                                            # Store player ID associated with the LFG ID
+                                            players.setdefault(lfg_id, set()).add(user.id)
+                                            if len(players.get(lfg_id, {})) == 4:
+                                                await update_embed(message, list(players[lfg_id]))
                                                 await interaction.followup.send("LFG request sent!", ephemeral=True)
                                                 return  # Exit the loop if 4 players are found
 
@@ -376,7 +381,7 @@ async def send_lfgs(interaction):
             # If the loop completes without 4 players, update the embed to "expired"
             for destination_channel_id, message in sent_messages.items():
                 if message is not None:
-                    await update_embed(message, players)
+                    await update_embed(message, list(players.get(lfg_id, {})))  # Pass the players for this LFG ID
                     await interaction.followup.send("LFG request sent!", ephemeral=True)
 
         except Exception as e:
