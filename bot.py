@@ -320,25 +320,25 @@ async def biglfg(interaction: discord.Interaction):
 
         sent_messages = {}
 
+        # Include the originating channel in the loop
         for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
-            if source_channel_id != destination_channel_id:
-                destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
-                if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
-                    try:
-                        message = await send_webhook_message(
-                            webhook_data['url'],
-                            embeds=[embed.to_dict()],
-                            username=f"{interaction.user.name} from {interaction.guild.name}",
-                            avatar_url=interaction.user.avatar.url if interaction.user.avatar else None
-                        )
-                        if message is None:  # Check if message sending failed
-                            logging.error(f"Failed to send LFG request to {destination_channel_id}")
-                            continue  # Skip to the next channel
+            destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
+            if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
+                try:
+                    message = await send_webhook_message(
+                        webhook_data['url'],
+                        embeds=[embed.to_dict()],
+                        username=f"{interaction.user.name} from {interaction.guild.name}",
+                        avatar_url=interaction.user.avatar.url if interaction.user.avatar else None
+                    )
+                    if message is None:  # Check if message sending failed
+                        logging.error(f"Failed to send LFG request to {destination_channel_id}")
+                        continue  # Skip to the next channel
 
-                        sent_messages[destination_channel_id] = message
-                        await message.add_reaction("👍")
-                    except Exception as e:
-                        logging.error(f"Error sending LFG request: {e}")
+                    sent_messages[destination_channel_id] = message
+                    await message.add_reaction("👍")
+                except Exception as e:
+                    logging.error(f"Error sending LFG request: {e}")
 
         async def update_embed(message, players):
             if len(players) == 4:
