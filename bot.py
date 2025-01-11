@@ -319,11 +319,12 @@ async def biglfg(interaction: discord.Interaction):
 async def update_embed_timeout(sent_messages, lfg_id):
     for destination_channel_id, message in sent_messages.items():
         if message is not None:
-            channel_id = int(destination_channel_id.split('_')[1])  # Extract channel ID
-            channel = client.get_channel(channel_id)  # Get the channel object
+            channel_id = int(destination_channel_id.split('_')[1])
+            channel = client.get_channel(channel_id)
             try:
-                msg = await channel.fetch_message(message.id)  # Fetch the latest message object
-                await update_embed(msg, {}, lfg_id, timeout_reached=True)  # Update the fetched message
+                # Re-fetch the message before updating
+                message = await channel.fetch_message(message.id)  
+                await update_embed(message, {}, lfg_id, timeout_reached=True)
             except discord.NotFound:
                 logging.error(f"Message not found in channel {channel_id}")
             except discord.HTTPException as e:
@@ -382,7 +383,6 @@ async def send_lfgs(interaction):
                 await message.edit(embed=new_embed)
             except discord.HTTPException as e:
                 logging.error(f"Error editing embed: {e}")
-
 
         # Initialize the scheduler 
         scheduler = AsyncIOScheduler()
