@@ -312,56 +312,39 @@ async def about(interaction: discord.Interaction):
 
 @client.tree.command(name="biglfg", description="Create a cross-server LFG request.")
 async def biglfg(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)  # Acknowledge with a hidden "thinking"
+    await interaction.response.defer(ephemeral=True)
     asyncio.create_task(send_lfgs(interaction))
 
-# Define update_embed_timeout outside send_lfgs
-async def update_embed_timeout(sent_messages, lfg_id):
-    for destination_channel_id, message in sent_messages.items():
-        if message is not None:
-            channel_id = int(destination_channel_id.split('_')[1])
-            channel = client.get_channel(channel_id)
-            try:
-                # Re-fetch the message before updating
-                message = await channel.fetch_message(message.id)  
-                await update_embed(message, {}, lfg_id, timeout_reached=True)
-            except discord.NotFound:
-                logging.error(f"Message not found in channel {channel_id}")
-            except discord.HTTPException as e:
-                logging.error(f"Error fetching message: {e}")
+async def update_embed_timeout(sent_messages, lfg_id, interaction):
+    try:
+        message = sent_messages.get(f'{interaction.guild.id}_{interaction.channel.id}')
+        if message:
+            await update_embed(message, {}, lfg_id, timeout_reached=True)
+    except discord.HTTPException as e:
+        logging.error(f"Error updating embed: {e}")
 
 async def send_lfgs(interaction):
     try:
         source_channel_id = f'{interaction.guild.id}_{interaction.channel.id}'
         source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
-
-        # Generate a unique ID for this LFG request
         lfg_id = str(uuid.uuid4())
 
         embed = discord.Embed(title="Looking for more players...", color=discord.Color.green())
         embed.set_footer(text="React with 👍 to join! (4 players needed)")
-
         sent_messages = {}
 
-        # Include the originating channel in the loop
         for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
             destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
-
-            # Apply filtering based on CHANNEL_FILTERS
-            if (source_filter == destination_filter or
-                source_filter == 'none' or
-                destination_filter == 'none'):
+            if (source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none'):
                 try:
                     message = await send_webhook_message(
-                        webhook_data['url'],
-                        embeds=[embed.to_dict()],
+                        webhook_data['url'], embeds=[embed.to_dict()],
                         username=f"{interaction.user.name} from {interaction.guild.name}",
                         avatar_url=interaction.user.avatar.url if interaction.user.avatar else None
                     )
-                    if message is None:  # Check if message sending failed
+                    if not message:
                         logging.error(f"Failed to send LFG request to {destination_channel_id}")
-                        continue  # Skip to the next channel
-
+                        continue
                     sent_messages[destination_channel_id] = message
                     await message.add_reaction("👍")
                 except Exception as e:
@@ -376,27 +359,24 @@ async def send_lfgs(interaction):
                 if timeout_reached:
                     new_embed = discord.Embed(title="This game request has expired due to inactivity.", color=discord.Color.red())
                 else:
-                    # Retain the original embed if not timed out
-                    new_embed = discord.Embed(title="Looking for more players...", color=discord.Color.green())  
-                    new_embed.set_footer(text="React with 👍 to join! (4 players needed)")  
+                    new_embed = discord.Embed(title="Looking for more players...", color=discord.Color.green())
+                    new_embed.set_footer(text="React with 👍 to join! (4 players needed)")
             try:
                 await message.edit(embed=new_embed)
             except discord.HTTPException as e:
                 logging.error(f"Error editing embed: {e}")
 
-        # Initialize the scheduler 
         scheduler = AsyncIOScheduler()
         scheduler.start()
 
         try:
             players = {}
 
-            # Create a task to monitor reactions
             async def monitor_reactions():
                 nonlocal players
                 for i in range(15 * 60):
                     for destination_channel_id, message in sent_messages.items():
-                        if message is not None:
+                        if message:
                             cache_msg = discord.utils.get(client.cached_messages, id=message.id)
                             if cache_msg:
                                 for reaction in cache_msg.reactions:
@@ -407,19 +387,16 @@ async def send_lfgs(interaction):
                                                 if len(players.get(lfg_id, {})) == 4:
                                                     await update_embed(message, players, lfg_id)
                                                     await interaction.followup.send("LFG request sent!", ephemeral=True)
-                                                    return  # Exit the monitor_reactions task
+                                                    return
 
                     await asyncio.sleep(1)
 
-            # Start the reaction monitoring task
             asyncio.create_task(monitor_reactions())
 
-            # Schedule the timeout task
             scheduler.add_job(
-                update_embed_timeout,
-                'date',
+                update_embed_timeout, 'date',
                 run_date=datetime.datetime.now() + datetime.timedelta(minutes=15),
-                args=[sent_messages, lfg_id],
+                args=[sent_messages, lfg_id, interaction],
             )
 
         except Exception as e:
