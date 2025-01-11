@@ -366,6 +366,8 @@ async def biglfg(interaction: discord.Interaction):
                                             players.append(user.name)
                                             if len(players) == 4:
                                                 await update_embed(message, players)
+                                                # Important: Follow up on the interaction
+                                                await interaction.followup.send("LFG request sent!", ephemeral=True)
                                                 return
 
                 await asyncio.sleep(1)
@@ -373,6 +375,8 @@ async def biglfg(interaction: discord.Interaction):
             for destination_channel_id, message in sent_messages.items():
                 if message is not None:  # Ensure message is not None before updating
                     await update_embed(message, players)
+                    # Important: Follow up on the interaction if the loop completes
+                    await interaction.followup.send("LFG request sent!", ephemeral=True) 
 
         except Exception as e:
             logging.error(f"Error during LFG process: {e}")
