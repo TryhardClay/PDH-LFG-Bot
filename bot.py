@@ -315,6 +315,20 @@ async def biglfg(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)  # Acknowledge with a hidden "thinking"
     asyncio.create_task(send_lfgs(interaction))
 
+# Define update_embed_timeout outside send_lfgs
+async def update_embed_timeout(sent_messages, lfg_id):
+    for destination_channel_id, message in sent_messages.items():
+        if message is not None:
+            channel_id = int(destination_channel_id.split('_')[1])  # Extract channel ID
+            channel = client.get_channel(channel_id)  # Get the channel object
+            try:
+                msg = await channel.fetch_message(message.id)  # Fetch the latest message object
+                await update_embed(msg, {}, lfg_id, timeout_reached=True)  # Update the fetched message
+            except discord.NotFound:
+                logging.error(f"Message not found in channel {channel_id}")
+            except discord.HTTPException as e:
+                logging.error(f"Error fetching message: {e}")
+
 async def send_lfgs(interaction):
     try:
         source_channel_id = f'{interaction.guild.id}_{interaction.channel.id}'
@@ -369,10 +383,6 @@ async def send_lfgs(interaction):
             except discord.HTTPException as e:
                 logging.error(f"Error editing embed: {e}")
 
-        async def update_embed_timeout(sent_messages, lfg_id):
-            for destination_channel_id, message in sent_messages.items():
-                if message is not None:
-                    await update_embed(message, {}, lfg_id, timeout_reached=True)
 
         # Initialize the scheduler 
         scheduler = AsyncIOScheduler()
@@ -404,7 +414,7 @@ async def send_lfgs(interaction):
             # Start the reaction monitoring task
             asyncio.create_task(monitor_reactions())
 
-            # Schedule the timeout task (moved after the update_embed_timeout definition)
+            # Schedule the timeout task
             scheduler.add_job(
                 update_embed_timeout,
                 'date',
