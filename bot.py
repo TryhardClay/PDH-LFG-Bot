@@ -352,18 +352,6 @@ async def send_lfgs(interaction):
                 except Exception as e:
                     logging.error(f"Error sending LFG request: {e}")
 
-        # Initialize the scheduler 
-        scheduler = AsyncIOScheduler()
-        scheduler.start()
-
-        # Schedule the timeout task
-        scheduler.add_job(
-            update_embed_timeout,
-            'date',
-            run_date=datetime.datetime.now() + datetime.timedelta(minutes=15),
-            args=[sent_messages, lfg_id],
-        )
-
         async def update_embed(message, players, lfg_id, timeout_reached=False):
             if len(players.get(lfg_id, {})) == 4:
                 new_embed = discord.Embed(title="Your game is ready!", color=discord.Color.blue())
@@ -385,6 +373,10 @@ async def send_lfgs(interaction):
             for destination_channel_id, message in sent_messages.items():
                 if message is not None:
                     await update_embed(message, {}, lfg_id, timeout_reached=True)
+
+        # Initialize the scheduler 
+        scheduler = AsyncIOScheduler()
+        scheduler.start()
 
         try:
             players = {}
@@ -411,6 +403,14 @@ async def send_lfgs(interaction):
 
             # Start the reaction monitoring task
             asyncio.create_task(monitor_reactions())
+
+            # Schedule the timeout task (moved after the update_embed_timeout definition)
+            scheduler.add_job(
+                update_embed_timeout,
+                'date',
+                run_date=datetime.datetime.now() + datetime.timedelta(minutes=15),
+                args=[sent_messages, lfg_id],
+            )
 
         except Exception as e:
             logging.error(f"Error during LFG process: {e}")
