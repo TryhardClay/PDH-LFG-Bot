@@ -159,6 +159,9 @@ async def on_message(message):
                         source_filter == 'none' or
                         destination_filter == 'none'):
                     try:
+                        # Log the webhook URL, content, and embeds being sent
+                        logging.debug(f"Sending webhook message to {webhook_data['url']} with content: {content} and embeds: {embeds}")
+
                         # Ensure the content is valid and embeds are processed properly
                         message = await send_webhook_message(
                             webhook_data['url'],
