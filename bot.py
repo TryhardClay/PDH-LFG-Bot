@@ -77,36 +77,19 @@ message_relay_task = None
 # -------------------------------------------------------------------------
 
 async def send_webhook_message(webhook_url, content=None, embeds=None, username=None, avatar_url=None):
-    async with aiohttp.ClientSession() as session:
-        data = {}
-        if content:
-            data["content"] = content
-        if embeds:
-            data["embeds"] = embeds
-        if username:
-            data["username"] = username
-        if avatar_url:
-            data["avatar_url"] = avatar_url
-
-        try:
-            async with session.post(webhook_url, json=data) as response:
-                if response.status == 204:  # Successful send
-                    logging.info(f"Message successfully sent to {webhook_url}")
-                    # Simulate returning a discord.Message-like object
-                    return discord.WebhookMessage(
-                        id=1234567890,  # Replace with the actual message ID if available
-                        webhook_id=webhook_url.split("/")[-2],  # Mock example
-                    )
-                else:
-                    logging.error(f"Failed to send message. Status code: {response.status}")
-                    logging.error(await response.text())
-        except aiohttp.ClientError as e:
-            logging.error(f"aiohttp.ClientError: {e}")
-        except discord.HTTPException as e:
-            logging.error(f"discord.HTTPException: {e}")
-        except Exception as e:
-            logging.error(f"An unexpected error occurred: {e}")
-
+    """Send a message via a webhook and return the WebhookMessage object."""
+    try:
+        webhook = discord.Webhook.from_url(webhook_url, adapter=discord.AsyncWebhookAdapter(aiohttp.ClientSession()))
+        message = await webhook.send(
+            content=content,
+            embeds=[discord.Embed.from_dict(embed) for embed in embeds] if embeds else None,
+            username=username,
+            avatar_url=avatar_url,
+            wait=True,  # Ensures the webhook message is returned
+        )
+        return message  # Return the WebhookMessage object
+    except Exception as e:
+        logging.error(f"An unexpected error occurred: {e}")
         return None
 
 # -------------------------------------------------------------------------
@@ -372,7 +355,7 @@ async def biglfg(interaction: discord.Interaction):
 
         # Check if at least one message was successfully sent
         if sent_messages:
-            embed_id = list(sent_messages.keys())[0]  # Use the first successful channel as the key
+            embed_id = list(sent_messages.values())[0].id  # Use the first successful channel's message ID as the key
             active_embeds[embed_id] = {
                 "players": [initiating_player],
                 "channels": list(sent_messages.keys()),
