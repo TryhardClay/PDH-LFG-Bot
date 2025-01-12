@@ -57,6 +57,9 @@ def load_channel_filters():
 WEBHOOK_URLS = load_webhook_data()
 CHANNEL_FILTERS = load_channel_filters()  # Load channel filters
 
+# Active embeds tracking
+active_embeds = {}  # {message_id: {"players": [], "task": timeout_task, "channels": [channel_ids]}}
+
 # Define intents (includes messages intent)
 intents = discord.Intents.default()
 intents.message_content = True
@@ -322,7 +325,7 @@ async def biglfg(interaction: discord.Interaction):
 
         sent_messages = {}
 
-        # Send the embed to all filtered channels, including the originating channel
+        # Send the embed to all filtered channels
         for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
             destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
             if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
@@ -341,59 +344,19 @@ async def biglfg(interaction: discord.Interaction):
                 except Exception as e:
                     logging.error(f"Error sending LFG request: {e}")
 
+        # Store active embed in memory
+        embed_id = list(sent_messages.values())[0].id  # Use the first message's ID as the key
+        active_embeds[embed_id] = {
+            "players": [initiating_player],
+            "channels": list(sent_messages.keys()),
+            "messages": sent_messages,
+        }
+
+        # Start timeout task
+        active_embeds[embed_id]["task"] = asyncio.create_task(lfg_timeout(embed_id))
+
         # Confirmation message
         await interaction.followup.send("LFG request sent across channels.", ephemeral=True)
-
-        # Players list and tracking
-        players = [initiating_player]
-
-        async def update_embeds():
-            """Updates all related embeds."""
-            for _, message in sent_messages.items():
-                try:
-                    if len(players) < 4:
-                        embed.description = f"React with 👍 to join! ({4 - len(players)} players needed)"
-                        embed.set_field_at(0, name="Players:", value="\n".join([f"{i + 1}. {name}" for i, name in enumerate(players)]))
-                        await message.edit(embed=embed)
-                    else:
-                        embed.title = "Your game is ready!"
-                        embed.color = discord.Color.green()
-                        embed.set_field_at(0, name="Players:", value="\n".join([f"{i + 1}. {name}" for i, name in enumerate(players)]))
-                        await message.edit(embed=embed)
-                except Exception as e:
-                    logging.error(f"Error updating embed: {e}")
-
-        def check_reaction(reaction, user):
-            """Validates a reaction for the LFG request."""
-            return str(reaction.emoji) == "👍" and user.name not in players and user != client.user
-
-        try:
-            # Monitor reactions for 15 minutes
-            for _ in range(15 * 60):
-                for _, message in sent_messages.items():
-                    cache_msg = discord.utils.get(client.cached_messages, id=message.id)
-                    if cache_msg:
-                        for reaction in cache_msg.reactions:
-                            if str(reaction.emoji) == "👍":
-                                async for user in reaction.users():
-                                    if check_reaction(reaction, user):
-                                        players.append(user.name)
-                                        await update_embeds()
-                                        if len(players) == 4:
-                                            return  # Game is ready, stop monitoring
-
-                await asyncio.sleep(1)
-
-            # Timeout logic: update all embeds to "expired"
-            for _, message in sent_messages.items():
-                try:
-                    timeout_embed = discord.Embed(title="This request has timed out.", color=discord.Color.red())
-                    await message.edit(embed=timeout_embed)
-                except Exception as e:
-                    logging.error(f"Error updating embed on timeout: {e}")
-
-        except Exception as e:
-            logging.error(f"Error during LFG monitoring: {e}")
 
     except Exception as e:
         logging.error(f"Error in /biglfg command: {e}")
@@ -401,6 +364,72 @@ async def biglfg(interaction: discord.Interaction):
             await interaction.followup.send("An error occurred while processing the LFG request.", ephemeral=True)
         except discord.HTTPException as e:
             logging.error(f"Error sending error message: {e}")
+
+
+@client.event
+async def on_reaction_add(reaction, user):
+    if user.bot:
+        return  # Ignore bot reactions
+
+    for embed_id, data in active_embeds.items():
+        # Check if the reaction belongs to an active embed
+        if reaction.message.id in [msg.id for msg in data["messages"].values()]:
+            if user.name not in data["players"] and str(reaction.emoji) == "👍":
+                data["players"].append(user.name)
+                await update_embeds(embed_id)
+
+                # End tracking if the player limit is reached
+                if len(data["players"]) == 4:
+                    await lfg_complete(embed_id)
+            break
+
+
+async def update_embeds(embed_id):
+    """Update all related embeds with the current player list."""
+    data = active_embeds[embed_id]
+    players = data["players"]
+
+    for channel_id, message in data["messages"].items():
+        try:
+            if len(players) < 4:
+                embed = discord.Embed(
+                    title="Looking for more players...",
+                    color=discord.Color.yellow(),
+                    description=f"React with 👍 to join! ({4 - len(players)} players needed)",
+                )
+            else:
+                embed = discord.Embed(title="Your game is ready!", color=discord.Color.green())
+
+            embed.add_field(name="Players:", value="\n".join([f"{i + 1}. {name}" for i, name in enumerate(players)]), inline=False)
+            await message.edit(embed=embed)
+        except Exception as e:
+            logging.error(f"Error updating embed in channel {channel_id}: {e}")
+
+
+async def lfg_timeout(embed_id):
+    """Handle timeout for an LFG embed."""
+    await asyncio.sleep(15 * 60)  # Wait 15 minutes
+    if embed_id in active_embeds:
+        data = active_embeds.pop(embed_id)
+        for channel_id, message in data["messages"].items():
+            try:
+                timeout_embed = discord.Embed(title="This request has timed out.", color=discord.Color.red())
+                await message.edit(embed=timeout_embed)
+            except Exception as e:
+                logging.error(f"Error updating embed on timeout in channel {channel_id}: {e}")
+
+
+async def lfg_complete(embed_id):
+    """Complete an LFG request when the player limit is reached."""
+    if embed_id in active_embeds:
+        data = active_embeds.pop(embed_id)
+        for channel_id, message in data["messages"].items():
+            try:
+                embed = discord.Embed(title="Your game is ready!", color=discord.Color.green())
+                embed.add_field(name="Players:", value="\n".join(data["players"]), inline=False)
+                await message.edit(embed=embed)
+            except Exception as e:
+                logging.error(f"Error updating embed on completion in channel {channel_id}: {e}")
 
 # -------------------------------------------------------------------------
 # Helper Functions
