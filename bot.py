@@ -13,7 +13,6 @@ from discord.ext.commands import has_permissions
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logging.debug(f"Webhook URL: {webhook_url}, Embeds: {embeds}, Content: {content}")
 
 # Access the token from the environment variable
 TOKEN = os.environ.get('TOKEN')
@@ -80,6 +79,8 @@ message_relay_task = None
 async def send_webhook_message(webhook_url, content=None, embeds=None, username=None, avatar_url=None):
     """Send a message via a webhook and handle invalid inputs."""
     try:
+        logging.debug(f"Webhook URL: {webhook_url}, Embeds: {embeds}, Content: {content}")
+
         if not webhook_url:
             logging.error("Webhook URL is None or invalid.")
             return None
