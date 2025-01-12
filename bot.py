@@ -338,32 +338,31 @@ async def biglfg(interaction: discord.Interaction):
                         username=f"{interaction.user.name} from {interaction.guild.name}",
                         avatar_url=interaction.user.avatar.url if interaction.user.avatar else None
                     )
-                    if message is None:
+                    if message is not None:
+                        sent_messages[destination_channel_id] = message
+                    else:
                         logging.warning(f"Failed to send LFG request to {destination_channel_id}")
-                        continue
-
-                    sent_messages[destination_channel_id] = message
                 except Exception as e:
                     logging.error(f"Error sending LFG request to {destination_channel_id}: {e}")
 
-        # Check if any messages were successfully sent
-        if not sent_messages:
+        # Check if at least one message was successfully sent
+        if sent_messages:
+            # Store active embed in memory
+            embed_id = list(sent_messages.values())[0].id  # Use the first message's ID as the key
+            active_embeds[embed_id] = {
+                "players": [initiating_player],
+                "channels": list(sent_messages.keys()),
+                "messages": sent_messages,
+            }
+
+            # Start timeout task
+            active_embeds[embed_id]["task"] = asyncio.create_task(lfg_timeout(embed_id))
+
+            # Confirmation message
+            await interaction.followup.send("LFG request sent across channels.", ephemeral=True)
+        else:
+            # If no messages were successfully sent
             await interaction.followup.send("Failed to send LFG request to any channels.", ephemeral=True)
-            return
-
-        # Store active embed in memory
-        embed_id = list(sent_messages.values())[0].id  # Use the first message's ID as the key
-        active_embeds[embed_id] = {
-            "players": [initiating_player],
-            "channels": list(sent_messages.keys()),
-            "messages": sent_messages,
-        }
-
-        # Start timeout task
-        active_embeds[embed_id]["task"] = asyncio.create_task(lfg_timeout(embed_id))
-
-        # Confirmation message
-        await interaction.followup.send("LFG request sent across channels.", ephemeral=True)
 
     except Exception as e:
         logging.error(f"Error in /biglfg command: {e}")
