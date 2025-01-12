@@ -326,64 +326,26 @@ async def about(interaction: discord.Interaction):
         logging.error(f"Error in /about command: {e}")
         await interaction.response.send_message("An error occurred while processing the command.", ephemeral=True)
 
-@client.tree.command(name="biglfg", description="Create a cross-server LFG request.")
-async def biglfg(interaction: discord.Interaction):
-    try:
-        await interaction.response.defer()
+async def update_embeds(embed_id):
+    """Update all related embeds with the current player list."""
+    data = active_embeds[embed_id]
+    players = data["players"]
 
-        source_channel_id = f'{interaction.guild.id}_{interaction.channel.id}'
-        source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
-        initiating_player = interaction.user.name
-
-        embed = discord.Embed(title="Looking for more players...", color=discord.Color.yellow())
-        embed.set_footer(text="React with 👍 to join! (3 players needed)")
-        embed.add_field(name="Players:", value=f"1. {initiating_player}", inline=False)
-
-        sent_messages = {}
-
-        # Filter destination channels by their assigned filter
-        for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
-            destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
-
-            # Only send to channels with a matching filter or no filter
-            if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
-                try:
-                    message = await send_webhook_message(
-                        webhook_data['url'],
-                        embeds=[embed.to_dict()],
-                        username=f"{interaction.user.name} from {interaction.guild.name}",
-                        avatar_url=interaction.user.avatar.url if interaction.user.avatar else None
-                    )
-                    if message:
-                        sent_messages[destination_channel_id] = message
-                    else:
-                        logging.warning(f"Failed to send LFG request to {destination_channel_id}")
-                except Exception as e:
-                    logging.error(f"Error sending LFG request to {destination_channel_id}: {e}")
-
-        # Check if at least one message was successfully sent
-        if sent_messages:
-            embed_id = list(sent_messages.values())[0].id  # Use the first successful message ID as the key
-            active_embeds[embed_id] = {
-                "players": [initiating_player],
-                "channels": list(sent_messages.keys()),
-                "messages": sent_messages,
-            }
-
-            # Start timeout task
-            active_embeds[embed_id]["task"] = asyncio.create_task(lfg_timeout(embed_id))
-
-            # Confirmation message
-            await interaction.followup.send("LFG request sent across channels.", ephemeral=True)
-        else:
-            await interaction.followup.send("Failed to send LFG request to any channels.", ephemeral=True)
-
-    except Exception as e:
-        logging.error(f"Error in /biglfg command: {e}")
+    for channel_id, message in data["messages"].items():
         try:
-            await interaction.followup.send("An error occurred while processing the LFG request.", ephemeral=True)
-        except discord.HTTPException as e:
-            logging.error(f"Error sending error message: {e}")
+            if len(players) < 4:
+                embed = discord.Embed(
+                    title="Looking for more players...",
+                    color=discord.Color.yellow(),
+                    description=f"React with 👍 to join! React with 👎 to leave. ({4 - len(players)} players needed)",
+                )
+            else:
+                embed = discord.Embed(title="Your game is ready!", color=discord.Color.green())
+
+            embed.add_field(name="Players:", value="\n".join([f"{i + 1}. {name}" for i, name in enumerate(players)]), inline=False)
+            await message.edit(embed=embed)
+        except Exception as e:
+            logging.error(f"Error updating embed in channel {channel_id}: {e}")
 
 # -------------------------------------------------------------------------
 # Helper Functions
