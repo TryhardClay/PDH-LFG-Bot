@@ -13,6 +13,7 @@ from discord.ext.commands import has_permissions
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.debug(f"Webhook URL: {webhook_url}, Embeds: {embeds}, Content: {content}")
 
 # Access the token from the environment variable
 TOKEN = os.environ.get('TOKEN')
@@ -77,17 +78,26 @@ message_relay_task = None
 # -------------------------------------------------------------------------
 
 async def send_webhook_message(webhook_url, content=None, embeds=None, username=None, avatar_url=None):
-    """Send a message via a webhook and return the WebhookMessage object."""
+    """Send a message via a webhook and handle invalid inputs."""
     try:
+        if not webhook_url:
+            logging.error("Webhook URL is None or invalid.")
+            return None
+
         webhook = discord.Webhook.from_url(webhook_url, session=aiohttp.ClientSession())
+        # Convert embeds if provided, else default to None
+        embed_objects = [discord.Embed.from_dict(embed) for embed in embeds] if embeds else None
         message = await webhook.send(
-            content=content,
-            embeds=[discord.Embed.from_dict(embed) for embed in embeds] if embeds else None,
-            username=username,
-            avatar_url=avatar_url,
+            content=content or "",  # Default to an empty string if content is None
+            embeds=embed_objects,
+            username=username or "Bot",  # Default username
+            avatar_url=avatar_url,       # Avatar can be None
             wait=True,  # Wait for the message to be sent and return it
         )
         return message  # Return the WebhookMessage object
+    except discord.NotFound:
+        logging.error(f"Webhook not found: {webhook_url}")
+        return None
     except Exception as e:
         logging.error(f"An unexpected error occurred while sending webhook message: {e}")
         return None
@@ -306,6 +316,16 @@ async def updateconfig(interaction: discord.Interaction):
             await interaction.response.send_message("An error occurred while reloading the configuration.",
                                                     ephemeral=True)
 
+@client.tree.command(name="debug_webhooks", description="Print all stored webhook URLs.")
+@has_permissions(administrator=True)
+async def debug_webhooks(interaction: discord.Interaction):
+    try:
+        webhooks = json.dumps(WEBHOOK_URLS, indent=4)
+        await interaction.response.send_message(f"Stored Webhooks:\n```json\n{webhooks}\n```", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"An error occurred: {e}", ephemeral=True)
+
+
 @client.tree.command(name="about", description="Show information about the bot and its commands.")
 async def about(interaction: discord.Interaction):
     try:
@@ -346,6 +366,70 @@ async def update_embeds(embed_id):
             await message.edit(embed=embed)
         except Exception as e:
             logging.error(f"Error updating embed in channel {channel_id}: {e}")
+
+@client.tree.command(name="biglfg", description="Create a cross-server LFG request.")
+async def biglfg(interaction: discord.Interaction):
+    try:
+        await interaction.response.defer()
+
+        source_channel_id = f'{interaction.guild.id}_{interaction.channel.id}'
+        source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
+        initiating_player = interaction.user.name
+
+        embed = discord.Embed(title="Looking for more players...", color=discord.Color.yellow())
+        embed.set_footer(text="React with 👍 to join! React with 👎 to leave. (3 players needed)")
+        embed.add_field(name="Players:", value=f"1. {initiating_player}", inline=False)
+
+        sent_messages = {}
+
+        # Filter destination channels by their assigned filter
+        for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
+            webhook_url = webhook_data.get("url")
+            if not webhook_url:
+                logging.error(f"Missing webhook URL for channel {destination_channel_id}. Skipping.")
+                continue
+
+            destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
+
+            # Only send to channels with a matching filter or no filter
+            if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
+                try:
+                    message = await send_webhook_message(
+                        webhook_url,
+                        embeds=[embed.to_dict()],
+                        username=f"{interaction.user.name} from {interaction.guild.name}",
+                        avatar_url=interaction.user.avatar.url if interaction.user.avatar else None
+                    )
+                    if message:
+                        sent_messages[destination_channel_id] = message
+                    else:
+                        logging.warning(f"Failed to send LFG request to {destination_channel_id}")
+                except Exception as e:
+                    logging.error(f"Error sending LFG request to {destination_channel_id}: {e}")
+
+        # Check if at least one message was successfully sent
+        if sent_messages:
+            embed_id = list(sent_messages.values())[0].id  # Use the first successful message ID as the key
+            active_embeds[embed_id] = {
+                "players": [initiating_player],
+                "channels": list(sent_messages.keys()),
+                "messages": sent_messages,
+            }
+
+            # Start timeout task
+            active_embeds[embed_id]["task"] = asyncio.create_task(lfg_timeout(embed_id))
+
+            # Confirmation message
+            await interaction.followup.send("LFG request sent across channels.", ephemeral=True)
+        else:
+            await interaction.followup.send("Failed to send LFG request to any channels.", ephemeral=True)
+
+    except Exception as e:
+        logging.error(f"Error in /biglfg command: {e}")
+        try:
+            await interaction.followup.send("An error occurred while processing the LFG request.", ephemeral=True)
+        except discord.HTTPException as e:
+            logging.error(f"Error sending error message: {e}")
 
 # -------------------------------------------------------------------------
 # Helper Functions
