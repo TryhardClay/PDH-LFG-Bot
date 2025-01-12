@@ -80,6 +80,8 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
     """Send a message via a webhook and return the WebhookMessage object."""
     try:
         webhook = discord.Webhook.from_url(webhook_url, session=aiohttp.ClientSession())
+        # Ensure embeds is either a valid list or an empty list
+        embeds = embeds if embeds else []
         message = await webhook.send(
             content=content,
             embeds=[discord.Embed.from_dict(embed) for embed in embeds] if embeds else None,
