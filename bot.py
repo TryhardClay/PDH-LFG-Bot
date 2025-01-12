@@ -78,18 +78,27 @@ message_relay_task = None
 
 async def send_webhook_message(webhook_url, content=None, embeds=None, username=None, avatar_url=None):
     """Send a message via a webhook and return the WebhookMessage object."""
-    try:
-        webhook = discord.Webhook.from_url(webhook_url, adapter=discord.AsyncWebhookAdapter(aiohttp.ClientSession()))
-        message = await webhook.send(
-            content=content,
-            embeds=[discord.Embed.from_dict(embed) for embed in embeds] if embeds else None,
-            username=username,
-            avatar_url=avatar_url,
-            wait=True,  # Ensures the webhook message is returned
-        )
-        return message  # Return the WebhookMessage object
-    except Exception as e:
-        logging.error(f"An unexpected error occurred: {e}")
+    async with aiohttp.ClientSession() as session:
+        data = {}
+        if content:
+            data["content"] = content
+        if embeds:
+            data["embeds"] = embeds
+        if username:
+            data["username"] = username
+        if avatar_url:
+            data["avatar_url"] = avatar_url
+
+        try:
+            async with session.post(webhook_url, json=data) as response:
+                if response.status == 200 or response.status == 204:  # Success
+                    logging.info(f"Message successfully sent to {webhook_url}")
+                    return {"id": response.headers.get("x-message-id"), "webhook_url": webhook_url}
+                else:
+                    logging.error(f"Failed to send message. Status code: {response.status}")
+                    logging.error(await response.text())
+        except Exception as e:
+            logging.error(f"An unexpected error occurred: {e}")
         return None
 
 # -------------------------------------------------------------------------
@@ -340,14 +349,14 @@ async def biglfg(interaction: discord.Interaction):
             # Only send to channels with a matching filter or no filter
             if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
                 try:
-                    message = await send_webhook_message(
+                    message_data = await send_webhook_message(
                         webhook_data['url'],
                         embeds=[embed.to_dict()],
                         username=f"{interaction.user.name} from {interaction.guild.name}",
                         avatar_url=interaction.user.avatar.url if interaction.user.avatar else None
                     )
-                    if message:
-                        sent_messages[destination_channel_id] = message
+                    if message_data:
+                        sent_messages[destination_channel_id] = message_data
                     else:
                         logging.warning(f"Failed to send LFG request to {destination_channel_id}")
                 except Exception as e:
@@ -355,7 +364,7 @@ async def biglfg(interaction: discord.Interaction):
 
         # Check if at least one message was successfully sent
         if sent_messages:
-            embed_id = list(sent_messages.values())[0].id  # Use the first successful channel's message ID as the key
+            embed_id = list(sent_messages.values())[0]["id"]  # Use the first successful message ID as the key
             active_embeds[embed_id] = {
                 "players": [initiating_player],
                 "channels": list(sent_messages.keys()),
