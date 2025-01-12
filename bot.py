@@ -78,27 +78,18 @@ message_relay_task = None
 
 async def send_webhook_message(webhook_url, content=None, embeds=None, username=None, avatar_url=None):
     """Send a message via a webhook and return the WebhookMessage object."""
-    async with aiohttp.ClientSession() as session:
-        data = {}
-        if content:
-            data["content"] = content
-        if embeds:
-            data["embeds"] = embeds
-        if username:
-            data["username"] = username
-        if avatar_url:
-            data["avatar_url"] = avatar_url
-
-        try:
-            async with session.post(webhook_url, json=data) as response:
-                if response.status == 200 or response.status == 204:  # Success
-                    logging.info(f"Message successfully sent to {webhook_url}")
-                    return {"id": response.headers.get("x-message-id"), "webhook_url": webhook_url}
-                else:
-                    logging.error(f"Failed to send message. Status code: {response.status}")
-                    logging.error(await response.text())
-        except Exception as e:
-            logging.error(f"An unexpected error occurred: {e}")
+    try:
+        webhook = discord.Webhook.from_url(webhook_url, session=aiohttp.ClientSession())
+        message = await webhook.send(
+            content=content,
+            embeds=[discord.Embed.from_dict(embed) for embed in embeds] if embeds else None,
+            username=username,
+            avatar_url=avatar_url,
+            wait=True,  # Wait for the message to be sent and return it
+        )
+        return message  # Return the WebhookMessage object
+    except Exception as e:
+        logging.error(f"An unexpected error occurred while sending webhook message: {e}")
         return None
 
 # -------------------------------------------------------------------------
@@ -349,14 +340,14 @@ async def biglfg(interaction: discord.Interaction):
             # Only send to channels with a matching filter or no filter
             if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
                 try:
-                    message_data = await send_webhook_message(
+                    message = await send_webhook_message(
                         webhook_data['url'],
                         embeds=[embed.to_dict()],
                         username=f"{interaction.user.name} from {interaction.guild.name}",
                         avatar_url=interaction.user.avatar.url if interaction.user.avatar else None
                     )
-                    if message_data:
-                        sent_messages[destination_channel_id] = message_data
+                    if message:
+                        sent_messages[destination_channel_id] = message
                     else:
                         logging.warning(f"Failed to send LFG request to {destination_channel_id}")
                 except Exception as e:
@@ -364,7 +355,7 @@ async def biglfg(interaction: discord.Interaction):
 
         # Check if at least one message was successfully sent
         if sent_messages:
-            embed_id = list(sent_messages.values())[0]["id"]  # Use the first successful message ID as the key
+            embed_id = list(sent_messages.values())[0].id  # Use the first successful message ID as the key
             active_embeds[embed_id] = {
                 "players": [initiating_player],
                 "channels": list(sent_messages.keys()),
@@ -411,8 +402,8 @@ async def lfg_timeout(embed_id):
         data = active_embeds.pop(embed_id)
         for channel_id, message in data["messages"].items():
             try:
-                # Ensure the message is a discord.Message-like object
-                if hasattr(message, "edit"):
+                # Ensure the message is a valid WebhookMessage
+                if isinstance(message, discord.WebhookMessage):
                     timeout_embed = discord.Embed(title="This request has timed out.", color=discord.Color.red())
                     await message.edit(embed=timeout_embed)
                 else:
