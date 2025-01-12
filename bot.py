@@ -179,22 +179,14 @@ async def on_reaction_add(reaction, user):
     # Iterate through active embeds to check if the reaction belongs to one of them
     for embed_id, data in active_embeds.items():
         if reaction.message.id in [msg.id for msg in data["messages"].values()]:
-            if str(reaction.emoji) == "👍":
-                # Ensure the user isn't already in the player list
-                if user.name not in data["players"]:
-                    data["players"].append(user.name)  # Add the user to the players list
-                    await update_embeds(embed_id)  # Update all related embeds
+            # Ensure the user isn't already in the player list and reacted with 👍
+            if user.name not in data["players"] and str(reaction.emoji) == "👍":
+                data["players"].append(user.name)  # Add the user to the players list
+                await update_embeds(embed_id)  # Update all related embeds
 
-                    # If the player limit is reached, complete the LFG request
-                    if len(data["players"]) == 4:
-                        await lfg_complete(embed_id)
-
-            elif str(reaction.emoji) == "👎":
-                # Remove the user from the players list if they are in it
-                if user.name in data["players"]:
-                    data["players"].remove(user.name)
-                    await update_embeds(embed_id)  # Update all related embeds
-
+                # If the player limit is reached, complete the LFG request
+                if len(data["players"]) == 4:
+                    await lfg_complete(embed_id)
             break  # No need to check further once the embed is identified
 
 # -------------------------------------------------------------------------
