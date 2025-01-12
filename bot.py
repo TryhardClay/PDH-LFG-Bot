@@ -13,6 +13,7 @@ from discord.ext.commands import has_permissions
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.debug(f"Sending webhook message to {webhook_data['url']} with content: {content} and embeds: {embeds}")
 
 # Access the token from the environment variable
 TOKEN = os.environ.get('TOKEN')
@@ -135,8 +136,13 @@ async def on_message(message):
     if message.webhook_id and message.author.id != client.user.id:
         return
 
-    content = message.content
+    # Ensure content is never None (set to an empty string if None)
+    content = message.content if message.content is not None else ""
+
+    # Ensure embeds is correctly converted from message
     embeds = [embed.to_dict() for embed in message.embeds]
+
+    # If there are attachments, append the URLs to the content
     if message.attachments:
         content += "\n" + "\n".join([attachment.url for attachment in message.attachments])
 
@@ -153,6 +159,7 @@ async def on_message(message):
                         source_filter == 'none' or
                         destination_filter == 'none'):
                     try:
+                        # Ensure the content is valid and embeds are processed properly
                         message = await send_webhook_message(
                             webhook_data['url'],
                             content=content,
