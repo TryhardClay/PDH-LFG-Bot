@@ -79,6 +79,9 @@ message_relay_task = None
 async def send_webhook_message(webhook_url, content=None, embeds=None, username=None, avatar_url=None):
     """Send a message via a webhook and return the WebhookMessage object."""
     try:
+        if embeds is None:
+            embeds = []  # Ensure embeds is always a list
+
         webhook = discord.Webhook.from_url(webhook_url, session=aiohttp.ClientSession())
         message = await webhook.send(
             content=content,
