@@ -325,9 +325,11 @@ async def biglfg(interaction: discord.Interaction):
 
         sent_messages = {}
 
-        # Send the embed to all filtered channels
+        # Filter destination channels by their assigned filter
         for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
             destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
+
+            # Only send to channels with a matching filter or no filter
             if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
                 try:
                     message = await send_webhook_message(
@@ -337,12 +339,12 @@ async def biglfg(interaction: discord.Interaction):
                         avatar_url=interaction.user.avatar.url if interaction.user.avatar else None
                     )
                     if message is None:
-                        logging.error(f"Failed to send LFG request to {destination_channel_id}")
+                        logging.warning(f"Failed to send LFG request to {destination_channel_id}")
                         continue
 
                     sent_messages[destination_channel_id] = message
                 except Exception as e:
-                    logging.error(f"Error sending LFG request: {e}")
+                    logging.error(f"Error sending LFG request to {destination_channel_id}: {e}")
 
         # Check if any messages were successfully sent
         if not sent_messages:
