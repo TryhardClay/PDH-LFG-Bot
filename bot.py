@@ -314,45 +314,54 @@ async def biglfg(interaction: discord.Interaction):
 
         source_channel_id = f'{interaction.guild.id}_{interaction.channel.id}'
         source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
+        initiating_player = interaction.user.name
 
         embed = discord.Embed(title="Looking for more players...", color=discord.Color.yellow())
-        embed.set_footer(text="React with 👍 to join! (4 players needed)")
+        embed.set_footer(text="React with 👍 to join! (3 players needed)")  # Starts with 3 because the initiator is added
+        embed.add_field(name="Players:", value=initiating_player, inline=False)
 
         sent_messages = {}
 
         for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
-            if source_channel_id != destination_channel_id:
-                destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
-                if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
-                    try:
-                        message = await send_webhook_message(
-                            webhook_data['url'],
-                            embeds=[embed.to_dict()],
-                            username=f"{interaction.user.name} from {interaction.guild.name}",
-                            avatar_url=interaction.user.avatar.url if interaction.user.avatar else None
-                        )
-                        if message is None:  # Check if message sending failed
-                            logging.error(f"Failed to send LFG request to {destination_channel_id}")
-                            continue  # Skip to the next channel
+            destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
 
-                        sent_messages[destination_channel_id] = message
-                    except Exception as e:
-                        logging.error(f"Error sending LFG request: {e}")
+            if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
+                try:
+                    message = await send_webhook_message(
+                        webhook_data['url'],
+                        embeds=[embed.to_dict()],
+                        username=f"{interaction.user.name} from {interaction.guild.name}",
+                        avatar_url=interaction.user.avatar.url if interaction.user.avatar else None
+                    )
+                    if message is None:  # Check if message sending failed
+                        logging.error(f"Failed to send LFG request to {destination_channel_id}")
+                        continue  # Skip to the next channel
+
+                    sent_messages[destination_channel_id] = message
+                except Exception as e:
+                    logging.error(f"Error sending LFG request: {e}")
+
+        # Remove the "thinking" dialog and confirm success
+        await interaction.followup.send("LFG request sent across channels.", ephemeral=True)
 
         async def update_embed(message, players):
             if len(players) == 4:
                 new_embed = discord.Embed(title="Your game is ready!", color=discord.Color.green())
                 new_embed.add_field(name="Players:", value="\n".join(players), inline=False)
             else:
-                new_embed = discord.Embed(title="This request has timed out.", color=discord.Color.red())
+                new_embed = discord.Embed(title="Looking for more players...", color=discord.Color.yellow())
+                new_embed.set_footer(text=f"React with 👍 to join! ({4 - len(players)} players needed)")
+                new_embed.add_field(name="Players:", value="\n".join(players), inline=False)
+
             try:
                 await message.edit(embed=new_embed)
             except discord.HTTPException as e:
                 logging.error(f"Error editing embed: {e}")
 
+        # Track players across messages
+        players = [initiating_player]
         try:
-            players = []
-            for i in range(15 * 60):  # Timeout after 15 minutes
+            for _ in range(15 * 60):  # Timeout after 15 minutes
                 for destination_channel_id, message in sent_messages.items():
                     if message is not None:
                         cache_msg = discord.utils.get(client.cached_messages, id=message.id)
@@ -363,14 +372,17 @@ async def biglfg(interaction: discord.Interaction):
                                         if user != client.user and user.name not in players:
                                             players.append(user.name)
                                             if len(players) == 4:
-                                                await update_embed(message, players)
-                                                return
+                                                for msg in sent_messages.values():
+                                                    await update_embed(msg, players)
+                                                return  # Game is ready
 
                 await asyncio.sleep(1)
 
+            # Timeout: Update embeds to show expiration
             for destination_channel_id, message in sent_messages.items():
-                if message is not None:  # Ensure message is not None before updating
-                    await update_embed(message, players)
+                if message is not None:
+                    timed_out_embed = discord.Embed(title="This request has timed out.", color=discord.Color.red())
+                    await message.edit(embed=timed_out_embed)
 
         except Exception as e:
             logging.error(f"Error during LFG process: {e}")
@@ -381,7 +393,6 @@ async def biglfg(interaction: discord.Interaction):
             await interaction.followup.send("An error occurred while processing the LFG request.", ephemeral=True)
         except discord.HTTPException as e:
             logging.error(f"Error sending error message: {e}")
-
 
 # -------------------------------------------------------------------------
 # Helper Functions
