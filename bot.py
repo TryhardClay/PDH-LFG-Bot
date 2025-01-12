@@ -12,7 +12,7 @@ from discord.ext.commands import has_permissions
 # -------------------------------------------------------------------------
 
 # Set up logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Access the token from the environment variable
 TOKEN = os.environ.get('TOKEN')
@@ -79,9 +79,13 @@ message_relay_task = None
 async def send_webhook_message(webhook_url, content=None, embeds=None, username=None, avatar_url=None):
     """Send a message via a webhook and return the WebhookMessage object."""
     try:
+        # Ensure that embeds is always a list (even if empty)
+        if embeds is None:
+            embeds = []
+        # Log the embed contents for debugging
+        logging.debug(f"Sending webhook message with embeds: {embeds}")
+
         webhook = discord.Webhook.from_url(webhook_url, session=aiohttp.ClientSession())
-        # Ensure embeds is either a valid list or an empty list
-        embeds = embeds if embeds else []
         message = await webhook.send(
             content=content,
             embeds=[discord.Embed.from_dict(embed) for embed in embeds] if embeds else None,
