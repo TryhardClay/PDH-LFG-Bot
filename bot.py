@@ -92,11 +92,11 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
             async with session.post(webhook_url, json=data) as response:
                 if response.status == 204:  # Successful send
                     logging.info(f"Message successfully sent to {webhook_url}")
-                    return True  # Indicate success
+                    return {"url": webhook_url, "status": "success"}
                 else:
                     logging.error(f"Failed to send message. Status code: {response.status}")
                     logging.error(await response.text())
-
+                    return None
         except aiohttp.ClientError as e:
             logging.error(f"aiohttp.ClientError: {e}")
         except discord.HTTPException as e:
@@ -104,7 +104,7 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
         except Exception as e:
             logging.error(f"An unexpected error occurred: {e}")
 
-    return None
+        return None
 
 # -------------------------------------------------------------------------
 # Event Handlers
@@ -335,14 +335,14 @@ async def biglfg(interaction: discord.Interaction):
             # Only send to channels with a matching filter or no filter
             if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
                 try:
-                    success = await send_webhook_message(
+                    message = await send_webhook_message(
                         webhook_data['url'],
                         embeds=[embed.to_dict()],
                         username=f"{interaction.user.name} from {interaction.guild.name}",
                         avatar_url=interaction.user.avatar.url if interaction.user.avatar else None
                     )
-                    if success:
-                        sent_messages[destination_channel_id] = True  # Store successful sends
+                    if message:
+                        sent_messages[destination_channel_id] = message
                     else:
                         logging.warning(f"Failed to send LFG request to {destination_channel_id}")
                 except Exception as e:
@@ -350,11 +350,11 @@ async def biglfg(interaction: discord.Interaction):
 
         # Check if at least one message was successfully sent
         if sent_messages:
-            # Store active embed in memory
             embed_id = list(sent_messages.keys())[0]  # Use the first successful channel as the key
             active_embeds[embed_id] = {
                 "players": [initiating_player],
                 "channels": list(sent_messages.keys()),
+                "messages": sent_messages,
             }
 
             # Start timeout task
@@ -363,7 +363,6 @@ async def biglfg(interaction: discord.Interaction):
             # Confirmation message
             await interaction.followup.send("LFG request sent across channels.", ephemeral=True)
         else:
-            # If no messages were successfully sent
             await interaction.followup.send("Failed to send LFG request to any channels.", ephemeral=True)
 
     except Exception as e:
