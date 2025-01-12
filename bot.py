@@ -65,7 +65,8 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
 intents.members = True
-intents.messages = True  # Added for caching messages
+intents.messages = True
+intents.reactions = True  # Add this line to enable reaction intents
 
 client = commands.Bot(command_prefix='/', intents=intents)
 
@@ -122,9 +123,9 @@ async def on_guild_join(guild):
         if channel.permissions_for(guild.me).send_messages:
             try:
                 await channel.send("Hello! I'm your cross-server communication bot. \n"
-                                  "An admin needs to use the `/setchannel` command to \n"
-                                  "choose a channel for relaying messages. \n"
-                                  "Be sure to select an appropriate filter; either 'cpdh' or 'casual'.")
+                                    "An admin needs to use the `/setchannel` command to \n"
+                                    "choose a channel for relaying messages. \n"
+                                    "Be sure to select an appropriate filter; either 'cpdh' or 'casual'.")
                 break  # Stop after sending the message once
             except discord.Forbidden:
                 pass  # Continue to the next channel if sending fails
@@ -155,8 +156,8 @@ async def on_message(message):
                 destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
 
                 if (source_filter == destination_filter or
-                        source_filter == 'none' or
-                        destination_filter == 'none'):
+                    source_filter == 'none' or
+                    destination_filter == 'none'):
                     try:
                         message = await send_webhook_message(
                             webhook_data['url'],
@@ -165,9 +166,8 @@ async def on_message(message):
                             username=f"{message.author.name} from {message.guild.name}",
                             avatar_url=message.author.avatar.url if message.author.avatar else None
                         )
-                        
-                        # This is the fix for the 'NoneType' object error
-                        if message is not None:     
+
+                        if message is not None:
                             for reaction in message.reactions:
                                 try:
                                     await reaction.message.add_reaction(reaction.emoji)
@@ -180,6 +180,124 @@ async def on_message(message):
 @client.event
 async def on_guild_remove(guild):
     pass  # Role management is handled elsewhere
+
+@client.event
+async def on_interaction(interaction):
+    if interaction.command.name == "biglfg":
+        await interaction.response.defer(ephemeral=True)  # Acknowledge the interaction
+
+        source_channel_id = f'{interaction.guild.id}_{interaction.channel.id}'
+        source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
+
+        # Generate a unique ID for this LFG request
+        lfg_id = str(uuid.uuid4())
+
+        embed = discord.Embed(title="Looking for more players...", color=discord.Color.green())
+        embed.set_footer(text="React with 👍 to join! (4 players needed)")
+
+        sent_messages = {}
+
+        # Include the originating channel in the loop
+        for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
+            destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
+
+            # Apply filtering based on CHANNEL_FILTERS
+            if (source_filter == destination_filter or
+                source_filter == 'none' or
+                destination_filter == 'none'):
+                try:
+                    message = await send_webhook_message(
+                        webhook_data['url'],
+                        embeds=[embed.to_dict()],
+                        username=f"{interaction.user.name} from {interaction.guild.name}",
+                        avatar_url=interaction.user.avatar.url if interaction.user.avatar else None
+                    )
+                    if message is None:  # Check if message sending failed
+                        logging.error(f"Failed to send LFG request to {destination_channel_id}")
+                        continue  # Skip to the next channel
+
+                    sent_messages[destination_channel_id] = message
+                    await message.add_reaction("👍")
+                except Exception as e:
+                    logging.error(f"Error sending LFG request: {e}")
+
+        try:
+            players = {}
+
+            # Create a task to monitor reactions (using on_raw_reaction_add)
+            async def monitor_reactions():
+                # This part will be implemented in the on_raw_reaction_add event handler below
+                pass  # Placeholder for now
+
+            # Start the reaction monitoring task
+            asyncio.create_task(monitor_reactions())
+
+            # Schedule the timeout task
+            scheduler = AsyncIOScheduler()
+            scheduler.start()
+            scheduler.add_job(
+                update_embed_timeout,
+                'date',
+                run_date=datetime.datetime.now() + datetime.timedelta(minutes=15),
+                args=[sent_messages, lfg_id, interaction],
+            )
+
+            async def update_embed(message, players, lfg_id, timeout_reached=False):
+                if len(players.get(lfg_id, {})) == 4:
+                    new_embed = discord.Embed(title="Your game is ready!", color=discord.Color.blue())
+                    player_names = [client.get_user(player).name for player in players[lfg_id]]
+                    new_embed.add_field(name="Players:", value="\n".join(player_names), inline=False)
+                else:
+                    if timeout_reached:
+                        new_embed = discord.Embed(title="This game request has expired due to inactivity.", color=discord.Color.red())
+                    else:
+                        new_embed = discord.Embed(title="Looking for more players...", color=discord.Color.green())
+                        new_embed.set_footer(text="React with 👍 to join! (4 players needed)")
+                try:
+                    await message.edit(embed=new_embed)
+                except discord.HTTPException as e:
+                    logging.error(f"Error editing embed: {e}")
+
+            async def update_embed_timeout(sent_messages, lfg_id, interaction):
+                try:
+                    message = sent_messages.get(f'{interaction.guild.id}_{interaction.channel.id}')
+                    if message:
+                        await update_embed(message, {}, lfg_id, timeout_reached=True)
+                except discord.HTTPException as e:
+                    logging.error(f"Error updating embed: {e}")
+
+        except Exception as e:
+            logging.error(f"Error during LFG process: {e}")
+
+@client.event
+async def on_raw_reaction_add(payload):
+    # Check if the reaction is on one of the LFG messages
+    if payload.message_id in [msg.id for msg in sent_messages.values()]:
+        if str(payload.emoji) == "👍":
+            # Get the lfg_id associated with the message
+            lfg_id = next((lfg_id for lfg_id, msg in sent_messages.items() if msg.id == payload.message_id), None)
+            if lfg_id is None:
+                return  # Reaction is not on an LFG message
+
+            # Get the user who added the reaction
+            guild = client.get_guild(payload.guild_id)
+            user = guild.get_member(payload.user_id)
+            if user is None or user == client.user:
+                return  # Ignore reactions from the bot itself
+
+            # Update the players dictionary
+            players.setdefault(lfg_id, set()).add(user.id)
+
+            # Check if 4 players have reacted
+            if len(players.get(lfg_id, {})) == 4:
+                # Get the message object
+                message = sent_messages[lfg_id]
+
+                # Update the embed
+                await update_embed(message, players, lfg_id)
+
+                # Send a confirmation message (optional)
+                # await interaction.followup.send("LFG request sent!", ephemeral=True)
 
 # -------------------------------------------------------------------------
 # Role Management
