@@ -92,11 +92,14 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
             async with session.post(webhook_url, json=data) as response:
                 if response.status == 204:  # Successful send
                     logging.info(f"Message successfully sent to {webhook_url}")
-                    return {"url": webhook_url, "status": "success"}
+                    # Simulate returning a discord.Message-like object
+                    return discord.WebhookMessage(
+                        id=1234567890,  # Replace with the actual message ID if available
+                        webhook_id=webhook_url.split("/")[-2],  # Mock example
+                    )
                 else:
                     logging.error(f"Failed to send message. Status code: {response.status}")
                     logging.error(await response.text())
-                    return None
         except aiohttp.ClientError as e:
             logging.error(f"aiohttp.ClientError: {e}")
         except discord.HTTPException as e:
@@ -183,6 +186,25 @@ async def on_message(message):
 @client.event
 async def on_guild_remove(guild):
     pass  # Role management is handled elsewhere
+
+@client.event
+async def on_reaction_add(reaction, user):
+    """Handle player reactions to active LFG embeds."""
+    if user.bot:
+        return  # Ignore bot reactions
+
+    # Iterate through active embeds to check if the reaction belongs to one of them
+    for embed_id, data in active_embeds.items():
+        if reaction.message.id in [msg.id for msg in data["messages"].values()]:
+            # Ensure the user isn't already in the player list and reacted with 👍
+            if user.name not in data["players"] and str(reaction.emoji) == "👍":
+                data["players"].append(user.name)  # Add the user to the players list
+                await update_embeds(embed_id)  # Update all related embeds
+
+                # If the player limit is reached, complete the LFG request
+                if len(data["players"]) == 4:
+                    await lfg_complete(embed_id)
+            break  # No need to check further once the embed is identified
 
 # -------------------------------------------------------------------------
 # Role Management
@@ -397,10 +419,35 @@ async def lfg_timeout(embed_id):
         data = active_embeds.pop(embed_id)
         for channel_id, message in data["messages"].items():
             try:
-                timeout_embed = discord.Embed(title="This request has timed out.", color=discord.Color.red())
-                await message.edit(embed=timeout_embed)
+                # Ensure the message is a discord.Message-like object
+                if hasattr(message, "edit"):
+                    timeout_embed = discord.Embed(title="This request has timed out.", color=discord.Color.red())
+                    await message.edit(embed=timeout_embed)
+                else:
+                    logging.error(f"Message in channel {channel_id} is not editable: {message}")
             except Exception as e:
                 logging.error(f"Error updating embed on timeout in channel {channel_id}: {e}")
+
+async def update_embeds(embed_id):
+    """Update all related embeds with the current player list."""
+    data = active_embeds[embed_id]
+    players = data["players"]
+
+    for channel_id, message in data["messages"].items():
+        try:
+            if len(players) < 4:
+                embed = discord.Embed(
+                    title="Looking for more players...",
+                    color=discord.Color.yellow(),
+                    description=f"React with 👍 to join! ({4 - len(players)} players needed)",
+                )
+            else:
+                embed = discord.Embed(title="Your game is ready!", color=discord.Color.green())
+
+            embed.add_field(name="Players:", value="\n".join([f"{i + 1}. {name}" for i, name in enumerate(players)]), inline=False)
+            await message.edit(embed=embed)
+        except Exception as e:
+            logging.error(f"Error updating embed in channel {channel_id}: {e}")
 
 # -------------------------------------------------------------------------
 # Message Relay Loop
