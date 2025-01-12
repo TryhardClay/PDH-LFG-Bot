@@ -315,7 +315,7 @@ async def biglfg(interaction: discord.Interaction):
         source_channel_id = f'{interaction.guild.id}_{interaction.channel.id}'
         source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
 
-        embed = discord.Embed(title="Looking for more players...", color=discord.Color.green())
+        embed = discord.Embed(title="Looking for more players...", color=discord.Color.yellow())
         embed.set_footer(text="React with 👍 to join! (4 players needed)")
 
         sent_messages = {}
@@ -336,13 +336,12 @@ async def biglfg(interaction: discord.Interaction):
                             continue  # Skip to the next channel
 
                         sent_messages[destination_channel_id] = message
-                        await message.add_reaction("👍")
                     except Exception as e:
                         logging.error(f"Error sending LFG request: {e}")
 
         async def update_embed(message, players):
             if len(players) == 4:
-                new_embed = discord.Embed(title="Your game is ready!", color=discord.Color.blue())
+                new_embed = discord.Embed(title="Your game is ready!", color=discord.Color.green())
                 new_embed.add_field(name="Players:", value="\n".join(players), inline=False)
             else:
                 new_embed = discord.Embed(title="This request has timed out.", color=discord.Color.red())
@@ -353,9 +352,8 @@ async def biglfg(interaction: discord.Interaction):
 
         try:
             players = []
-            for i in range(15 * 60):
+            for i in range(15 * 60):  # Timeout after 15 minutes
                 for destination_channel_id, message in sent_messages.items():
-                    # Ensure message is not None before accessing its attributes
                     if message is not None:
                         cache_msg = discord.utils.get(client.cached_messages, id=message.id)
                         if cache_msg:
@@ -383,6 +381,7 @@ async def biglfg(interaction: discord.Interaction):
             await interaction.followup.send("An error occurred while processing the LFG request.", ephemeral=True)
         except discord.HTTPException as e:
             logging.error(f"Error sending error message: {e}")
+
 
 # -------------------------------------------------------------------------
 # Helper Functions
