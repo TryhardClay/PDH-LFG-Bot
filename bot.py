@@ -310,21 +310,21 @@ async def about(interaction: discord.Interaction):
 @client.tree.command(name="biglfg", description="Create a cross-server LFG request.")
 async def biglfg(interaction: discord.Interaction):
     try:
-        await interaction.response.defer()  # Defer the response
+        await interaction.response.defer()
 
         source_channel_id = f'{interaction.guild.id}_{interaction.channel.id}'
         source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
         initiating_player = interaction.user.name
 
         embed = discord.Embed(title="Looking for more players...", color=discord.Color.yellow())
-        embed.set_footer(text="React with 👍 to join! (3 players needed)")  # Starts with 3 because the initiator is added
-        embed.add_field(name="Players:", value=initiating_player, inline=False)
+        embed.set_footer(text="React with 👍 to join! (3 players needed)")
+        embed.add_field(name="Players:", value=f"1. {initiating_player}", inline=False)
 
         sent_messages = {}
 
+        # Send the embed to all filtered channels, including the originating channel
         for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
             destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
-
             if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
                 try:
                     message = await send_webhook_message(
@@ -333,59 +333,67 @@ async def biglfg(interaction: discord.Interaction):
                         username=f"{interaction.user.name} from {interaction.guild.name}",
                         avatar_url=interaction.user.avatar.url if interaction.user.avatar else None
                     )
-                    if message is None:  # Check if message sending failed
+                    if message is None:
                         logging.error(f"Failed to send LFG request to {destination_channel_id}")
-                        continue  # Skip to the next channel
+                        continue
 
                     sent_messages[destination_channel_id] = message
                 except Exception as e:
                     logging.error(f"Error sending LFG request: {e}")
 
-        # Remove the "thinking" dialog and confirm success
+        # Confirmation message
         await interaction.followup.send("LFG request sent across channels.", ephemeral=True)
 
-        async def update_embed(message, players):
-            if len(players) == 4:
-                new_embed = discord.Embed(title="Your game is ready!", color=discord.Color.green())
-                new_embed.add_field(name="Players:", value="\n".join(players), inline=False)
-            else:
-                new_embed = discord.Embed(title="Looking for more players...", color=discord.Color.yellow())
-                new_embed.set_footer(text=f"React with 👍 to join! ({4 - len(players)} players needed)")
-                new_embed.add_field(name="Players:", value="\n".join(players), inline=False)
-
-            try:
-                await message.edit(embed=new_embed)
-            except discord.HTTPException as e:
-                logging.error(f"Error editing embed: {e}")
-
-        # Track players across messages
+        # Players list and tracking
         players = [initiating_player]
+
+        async def update_embeds():
+            """Updates all related embeds."""
+            for _, message in sent_messages.items():
+                try:
+                    if len(players) < 4:
+                        embed.description = f"React with 👍 to join! ({4 - len(players)} players needed)"
+                        embed.set_field_at(0, name="Players:", value="\n".join([f"{i + 1}. {name}" for i, name in enumerate(players)]))
+                        await message.edit(embed=embed)
+                    else:
+                        embed.title = "Your game is ready!"
+                        embed.color = discord.Color.green()
+                        embed.set_field_at(0, name="Players:", value="\n".join([f"{i + 1}. {name}" for i, name in enumerate(players)]))
+                        await message.edit(embed=embed)
+                except Exception as e:
+                    logging.error(f"Error updating embed: {e}")
+
+        def check_reaction(reaction, user):
+            """Validates a reaction for the LFG request."""
+            return str(reaction.emoji) == "👍" and user.name not in players and user != client.user
+
         try:
-            for _ in range(15 * 60):  # Timeout after 15 minutes
-                for destination_channel_id, message in sent_messages.items():
-                    if message is not None:
-                        cache_msg = discord.utils.get(client.cached_messages, id=message.id)
-                        if cache_msg:
-                            for reaction in cache_msg.reactions:
-                                if str(reaction.emoji) == "👍":
-                                    async for user in reaction.users():
-                                        if user != client.user and user.name not in players:
-                                            players.append(user.name)
-                                            if len(players) == 4:
-                                                for msg in sent_messages.values():
-                                                    await update_embed(msg, players)
-                                                return  # Game is ready
+            # Monitor reactions for 15 minutes
+            for _ in range(15 * 60):
+                for _, message in sent_messages.items():
+                    cache_msg = discord.utils.get(client.cached_messages, id=message.id)
+                    if cache_msg:
+                        for reaction in cache_msg.reactions:
+                            if str(reaction.emoji) == "👍":
+                                async for user in reaction.users():
+                                    if check_reaction(reaction, user):
+                                        players.append(user.name)
+                                        await update_embeds()
+                                        if len(players) == 4:
+                                            return  # Game is ready, stop monitoring
 
                 await asyncio.sleep(1)
 
-            # Timeout: Update embeds to show expiration
-            for destination_channel_id, message in sent_messages.items():
-                if message is not None:
-                    timed_out_embed = discord.Embed(title="This request has timed out.", color=discord.Color.red())
-                    await message.edit(embed=timed_out_embed)
+            # Timeout logic: update all embeds to "expired"
+            for _, message in sent_messages.items():
+                try:
+                    timeout_embed = discord.Embed(title="This request has timed out.", color=discord.Color.red())
+                    await message.edit(embed=timeout_embed)
+                except Exception as e:
+                    logging.error(f"Error updating embed on timeout: {e}")
 
         except Exception as e:
-            logging.error(f"Error during LFG process: {e}")
+            logging.error(f"Error during LFG monitoring: {e}")
 
     except Exception as e:
         logging.error(f"Error in /biglfg command: {e}")
