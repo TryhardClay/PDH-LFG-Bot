@@ -390,6 +390,18 @@ def save_channel_filters():
     except Exception as e:
         logging.error(f"Error saving channel filters to {CHANNEL_FILTERS_PATH}: {e}")
 
+async def lfg_timeout(embed_id):
+    """Handle timeout for an LFG embed."""
+    await asyncio.sleep(15 * 60)  # Wait 15 minutes
+    if embed_id in active_embeds:
+        data = active_embeds.pop(embed_id)
+        for channel_id, message in data["messages"].items():
+            try:
+                timeout_embed = discord.Embed(title="This request has timed out.", color=discord.Color.red())
+                await message.edit(embed=timeout_embed)
+            except Exception as e:
+                logging.error(f"Error updating embed on timeout in channel {channel_id}: {e}")
+
 # -------------------------------------------------------------------------
 # Message Relay Loop
 # -------------------------------------------------------------------------
