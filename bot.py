@@ -135,7 +135,7 @@ async def relay_message(source_message, destination_channel):
     unique_id = str(uuid.uuid4())  # Generate a unique message ID
     relayed_message = await destination_channel.send(content=source_message.content)
 
-    # Initialize the unique_id entry if it doesn't exist
+    # Ensure the structure is initialized properly
     if unique_id not in relayed_messages:
         relayed_messages[unique_id] = {
             "original_message": source_message,
@@ -143,7 +143,8 @@ async def relay_message(source_message, destination_channel):
         }
     # Add the relayed message to the dictionary
     relayed_messages[unique_id]["relayed_messages"][destination_channel.id] = relayed_message
-    logging.debug(f"Current state of relayed_messages: {relayed_messages}")
+
+    logging.debug(f"Relay message stored: {unique_id} -> {relayed_messages[unique_id]}")
     return unique_id
 
 # -------------------------------------------------------------------------
@@ -205,36 +206,34 @@ async def on_message(message):
 
 @client.event
 async def on_message_edit(before, after):
-    """Handle message edits and propagate them across associated channels."""
-    try:
-        for unique_id, data in relayed_messages.items():
-            if data["original_message"].id == before.id:
-                # Propagate the edit
-                relayed_message = data["relayed_message"]
-                await relayed_message.edit(content=after.content)
-                logging.info(f"Message edit propagated: {before.content} -> {after.content}")
-                break
-        else:
-            logging.warning(f"Original message {before.id} not found in relayed_messages. Cannot propagate edits.")
-    except Exception as e:
-        logging.error(f"Error in on_message_edit: {e}")
-
+    for unique_id, data in relayed_messages.items():
+        if data["original_message"].id == before.id:
+            if "relayed_messages" in data and isinstance(data["relayed_messages"], dict):
+                for channel_id, relayed_message in data["relayed_messages"].items():
+                    try:
+                        await relayed_message.edit(content=after.content)
+                        logging.info(f"Edited relayed message in channel {channel_id}")
+                    except Exception as e:
+                        logging.error(f"Error editing relayed message in channel {channel_id}: {e}")
+            else:
+                logging.warning(f"'relayed_messages' key missing or invalid for unique_id {unique_id}.")
+            break
+    else:
+        logging.warning(f"Original message {before.id} not found in relayed_messages. Cannot propagate edits.")
 
 @client.event
 async def on_message_delete(message):
-    # Iterate over the relayed_messages to find the unique_id for the deleted original message
     for unique_id, data in relayed_messages.items():
         if data["original_message"].id == message.id:
-            # Check if "relayed_messages" exists and is a dictionary
             if "relayed_messages" in data and isinstance(data["relayed_messages"], dict):
                 for channel_id, relayed_message in data["relayed_messages"].items():
                     try:
                         await relayed_message.delete()
+                        logging.info(f"Deleted relayed message in channel {channel_id}")
                     except Exception as e:
                         logging.error(f"Error deleting relayed message in channel {channel_id}: {e}")
-                # Remove the entry from relayed_messages after deletion
-                del relayed_messages[unique_id]
-                logging.info(f"Deleted relayed messages for original message {message.id}.")
+                del relayed_messages[unique_id]  # Clean up after deletion
+                logging.info(f"Deleted original message {message.id} and its relayed copies.")
             else:
                 logging.warning(f"'relayed_messages' key missing or invalid for unique_id {unique_id}.")
             break
@@ -243,23 +242,16 @@ async def on_message_delete(message):
 
 @client.event
 async def on_reaction_add(reaction, user):
-    if user.bot:
-        return  # Ignore bot reactions
-
-    original_message_id = reaction.message.id
-
-    # Look for the original message in relayed_messages
     for unique_id, data in relayed_messages.items():
-        if data["original_message"].id == original_message_id:
-            # Propagate the reaction to all relayed copies
-            for channel_id, relayed_message in data["relayed_messages"].items():
-                try:
-                    await relayed_message.add_reaction(reaction.emoji)
-                except Exception as e:
-                    logging.error(f"Error adding reaction in channel {channel_id}: {e}")
-            return
-
-    logging.warning(f"Original message {original_message_id} not found in relayed_messages. Cannot propagate reactions.")
+        if data["original_message"].id == reaction.message.id:
+            if "relayed_messages" in data and isinstance(data["relayed_messages"], dict):
+                logging.info(f"Reaction added by {user.name} in channel {reaction.message.channel.id}")
+                # You can handle additional reaction logic here
+            else:
+                logging.warning(f"'relayed_messages' key missing or invalid for unique_id {unique_id}.")
+            break
+    else:
+        logging.warning(f"Original message {reaction.message.id} not found in relayed_messages. Cannot propagate reactions.")
 
 @client.event
 async def on_guild_remove(guild):
