@@ -56,6 +56,7 @@ def load_channel_filters():
 
 WEBHOOK_URLS = load_webhook_data()
 CHANNEL_FILTERS = load_channel_filters()  # Load channel filters
+active_embeds = {}  # {message_id: {"players": [], "task": timeout_task, "messages": {channel_id: message}}}
 
 # Define intents (includes messages intent)
 intents = discord.Intents.default()
@@ -180,6 +181,8 @@ async def on_reaction_add(reaction, user):
     if user.bot:
         return  # Ignore bot reactions
 
+    global active_embeds  # Ensure global scope is referenced
+
     for embed_id, data in active_embeds.items():
         if reaction.message.id in [msg.id for msg in data["messages"].values()]:
             if str(reaction.emoji) == "👍":
@@ -198,7 +201,6 @@ async def on_reaction_add(reaction, user):
                     data["players"].remove(user.name)
                     await update_embeds(embed_id)
             break  # Stop checking other embeds once a match is found
-
 
 async def update_embeds(embed_id):
     """Update all related embeds with the current player list."""
