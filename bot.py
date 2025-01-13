@@ -175,6 +175,97 @@ async def on_message(message):
                         logging.error(f"Error relaying message: {e}")
 
 @client.event
+async def on_reaction_add(reaction, user):
+    """Handle player reactions to active LFG embeds."""
+    if user.bot:
+        return  # Ignore bot reactions
+
+    for embed_id, data in active_embeds.items():
+        if reaction.message.id in [msg.id for msg in data["messages"].values()]:
+            if str(reaction.emoji) == "👍":
+                # Add the user to the player list
+                if user.name not in data["players"]:
+                    data["players"].append(user.name)
+                    await update_embeds(embed_id)
+
+                    # If the player limit is reached, complete the LFG request
+                    if len(data["players"]) == 4:
+                        await lfg_complete(embed_id)
+
+            elif str(reaction.emoji) == "👎":
+                # Remove the user from the player list
+                if user.name in data["players"]:
+                    data["players"].remove(user.name)
+                    await update_embeds(embed_id)
+            break  # Stop checking other embeds once a match is found
+
+
+async def update_embeds(embed_id):
+    """Update all related embeds with the current player list."""
+    data = active_embeds[embed_id]
+    players = data["players"]
+
+    for channel_id, message in data["messages"].items():
+        try:
+            if len(players) < 4:
+                embed = discord.Embed(
+                    title="Looking for more players...",
+                    color=discord.Color.yellow(),
+                    description=f"React with 👍 to join! React with 👎 to leave. ({4 - len(players)} players needed)",
+                )
+            else:
+                embed = discord.Embed(title="Your game is ready!", color=discord.Color.green())
+
+            embed.add_field(
+                name="Players:",
+                value="\n".join([f"{i + 1}. {name}" for i, name in enumerate(players)]),
+                inline=False,
+            )
+            await message.edit(embed=embed)
+        except Exception as e:
+            logging.error(f"Error updating embed in channel {channel_id}: {e}")
+
+
+async def lfg_complete(embed_id):
+    """Mark the LFG request as complete."""
+    data = active_embeds.pop(embed_id)
+    for channel_id, message in data["messages"].items():
+        try:
+            embed = discord.Embed(title="Your game is ready!", color=discord.Color.green())
+            embed.add_field(
+                name="Players:",
+                value="\n".join([f"{i + 1}. {name}" for i, name in enumerate(data["players"])]),
+                inline=False,
+            )
+            await message.edit(embed=embed)
+        except Exception as e:
+            logging.error(f"Error completing LFG request in channel {channel_id}: {e}")
+@client.event
+async def on_reaction_add(reaction, user):
+    """Handle player reactions to active LFG embeds."""
+    if user.bot:
+        return  # Ignore bot reactions
+
+    for embed_id, data in active_embeds.items():
+        if reaction.message.id in [msg.id for msg in data["messages"].values()]:
+            if str(reaction.emoji) == "👍":
+                # Add the user to the player list
+                if user.name not in data["players"]:
+                    data["players"].append(user.name)
+                    await update_embeds(embed_id)
+
+                    # If the player limit is reached, complete the LFG request
+                    if len(data["players"]) == 4:
+                        await lfg_complete(embed_id)
+
+            elif str(reaction.emoji) == "👎":
+                # Remove the user from the player list
+                if user.name in data["players"]:
+                    data["players"].remove(user.name)
+                    await update_embeds(embed_id)
+            break  # Stop checking other embeds once a match is found
+
+@client.event
 async def on_guild_remove(guild):
     pass  # Role management is handled elsewhere
 
@@ -383,6 +474,47 @@ def save_channel_filters():
             json.dump(CHANNEL_FILTERS, f, indent=4)
     except Exception as e:
         logging.error(f"Error saving channel filters to {CHANNEL_FILTERS_PATH}: {e}")
+
+async def update_embeds(embed_id):
+    """Update all related embeds with the current player list."""
+    data = active_embeds[embed_id]
+    players = data["players"]
+
+    for channel_id, message in data["messages"].items():
+        try:
+            if len(players) < 4:
+                embed = discord.Embed(
+                    title="Looking for more players...",
+                    color=discord.Color.yellow(),
+                    description=f"React with 👍 to join! React with 👎 to leave. ({4 - len(players)} players needed)",
+                )
+            else:
+                embed = discord.Embed(title="Your game is ready!", color=discord.Color.green())
+
+            embed.add_field(
+                name="Players:",
+                value="\n".join([f"{i + 1}. {name}" for i, name in enumerate(players)]),
+                inline=False,
+            )
+            await message.edit(embed=embed)
+        except Exception as e:
+            logging.error(f"Error updating embed in channel {channel_id}: {e}")
+
+
+async def lfg_complete(embed_id):
+    """Mark the LFG request as complete."""
+    data = active_embeds.pop(embed_id)
+    for channel_id, message in data["messages"].items():
+        try:
+            embed = discord.Embed(title="Your game is ready!", color=discord.Color.green())
+            embed.add_field(
+                name="Players:",
+                value="\n".join([f"{i + 1}. {name}" for i, name in enumerate(data["players"])]),
+                inline=False,
+            )
+            await message.edit(embed=embed)
+        except Exception as e:
+            logging.error(f"Error completing LFG request in channel {channel_id}: {e}")
 
 # -------------------------------------------------------------------------
 # Message Relay Loop
