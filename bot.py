@@ -13,6 +13,8 @@ from discord.ext.commands import has_permissions
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.debug(f"Reaction added by {user.name} with emoji {reaction.emoji}")
+logging.debug(f"Updated players list: {data['players']}")
 
 # Access the token from the environment variable
 TOKEN = os.environ.get('TOKEN')
@@ -56,7 +58,13 @@ def load_channel_filters():
 
 WEBHOOK_URLS = load_webhook_data()
 CHANNEL_FILTERS = load_channel_filters()  # Load channel filters
-active_embeds = {}  # {message_id: {"players": [], "task": timeout_task, "messages": {channel_id: message}}}
+active_embeds = {
+    "embed_id": {
+        "players": ["Player1"],
+        "task": timeout_task,
+        "messages": {channel_id: discord.WebhookMessage, ...},
+    },
+}
 
 # Define intents (includes messages intent)
 intents = discord.Intents.default()
@@ -176,15 +184,17 @@ async def on_message(message):
                         logging.error(f"Error relaying message: {e}")
 
 @client.event
+@client.event
 async def on_reaction_add(reaction, user):
     """Handle player reactions to active LFG embeds."""
     if user.bot:
         return  # Ignore bot reactions
 
-    global active_embeds  # Ensure global scope is referenced
-
     for embed_id, data in active_embeds.items():
         if reaction.message.id in [msg.id for msg in data["messages"].values()]:
+            logging.debug(f"Reaction added by {user.name} with emoji {reaction.emoji}")
+            logging.debug(f"Active embed IDs: {list(active_embeds.keys())}")
+            
             if str(reaction.emoji) == "👍":
                 # Add the user to the player list
                 if user.name not in data["players"]:
@@ -226,7 +236,6 @@ async def update_embeds(embed_id):
             await message.edit(embed=embed)
         except Exception as e:
             logging.error(f"Error updating embed in channel {channel_id}: {e}")
-
 
 async def lfg_complete(embed_id):
     """Mark the LFG request as complete."""
@@ -410,7 +419,7 @@ async def biglfg(interaction: discord.Interaction):
         initiating_player = interaction.user.name
 
         embed = discord.Embed(title="Looking for more players...", color=discord.Color.yellow())
-        embed.set_footer(text="React with 👍 to join! (3 players needed)")
+        embed.set_footer(text="React with 👍 to join! React with 👎 to leave. (3 players needed)")
         embed.add_field(name="Players:", value=f"1. {initiating_player}", inline=False)
 
         sent_messages = {}
@@ -442,10 +451,8 @@ async def biglfg(interaction: discord.Interaction):
                 "players": [initiating_player],
                 "channels": list(sent_messages.keys()),
                 "messages": sent_messages,
+                "task": asyncio.create_task(lfg_timeout(embed_id)),
             }
-
-            # Start timeout task
-            active_embeds[embed_id]["task"] = asyncio.create_task(lfg_timeout(embed_id))
 
             # Confirmation message
             await interaction.followup.send("LFG request sent across channels.", ephemeral=True)
@@ -501,7 +508,6 @@ async def update_embeds(embed_id):
             await message.edit(embed=embed)
         except Exception as e:
             logging.error(f"Error updating embed in channel {channel_id}: {e}")
-
 
 async def lfg_complete(embed_id):
     """Mark the LFG request as complete."""
