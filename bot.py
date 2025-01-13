@@ -357,7 +357,7 @@ async def biglfg(interaction: discord.Interaction):
         source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
         initiating_player = interaction.user
 
-        # Create the embed with buttons
+        # Create the embed
         embed = discord.Embed(
             title="Looking for more players...",
             color=discord.Color.yellow()
@@ -373,21 +373,21 @@ async def biglfg(interaction: discord.Interaction):
         view = discord.ui.View(timeout=15 * 60)  # 15-minute timeout
 
         async def join_button_callback(button_interaction: discord.Interaction):
-            embed_id = interaction.message.id
+            embed_id = button_interaction.message.id
             user_id = button_interaction.user.id
             display_name = button_interaction.user.name
 
-            if user_id not in active_embeds[embed_id]["players"]:
+            if embed_id in active_embeds and user_id not in active_embeds[embed_id]["players"]:
                 active_embeds[embed_id]["players"][user_id] = display_name
                 await update_embeds(embed_id)
 
             await button_interaction.response.defer()
 
         async def leave_button_callback(button_interaction: discord.Interaction):
-            embed_id = interaction.message.id
+            embed_id = button_interaction.message.id
             user_id = button_interaction.user.id
 
-            if user_id in active_embeds[embed_id]["players"]:
+            if embed_id in active_embeds and user_id in active_embeds[embed_id]["players"]:
                 del active_embeds[embed_id]["players"][user_id]
                 await update_embeds(embed_id)
 
@@ -402,6 +402,7 @@ async def biglfg(interaction: discord.Interaction):
         view.add_item(join_button)
         view.add_item(leave_button)
 
+        # Distribute the embed to all channels
         sent_messages = {}
 
         for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
