@@ -132,18 +132,20 @@ def save_channel_filters():
         logging.error(f"Error saving channel filters: {e}")
 
 async def relay_message(source_message, destination_channel):
-    unique_id = str(uuid.uuid4())  # Generate a unique message ID
+    unique_id = str(uuid.uuid4())  # Generate a unique ID
     relayed_message = await destination_channel.send(content=source_message.content)
 
     # Ensure the structure is initialized properly
     if unique_id not in relayed_messages:
         relayed_messages[unique_id] = {
             "original_message": source_message,
-            "relayed_messages": {}
+            "relayed_messages": {}  # This should be a dictionary to hold relayed messages
         }
+
     # Add the relayed message to the dictionary
     relayed_messages[unique_id]["relayed_messages"][destination_channel.id] = relayed_message
 
+    # Debugging: Check state of `relayed_messages`
     logging.debug(f"Relay message stored: {unique_id} -> {relayed_messages[unique_id]}")
     return unique_id
 
@@ -207,7 +209,8 @@ async def on_message(message):
 @client.event
 async def on_message_edit(before, after):
     for unique_id, data in relayed_messages.items():
-        if data["original_message"].id == before.id:
+        logging.debug(f"Accessing relayed_messages for unique_id: {unique_id}")  # Add here
+        if data.get("original_message") and data["original_message"].id == before.id:
             if "relayed_messages" in data and isinstance(data["relayed_messages"], dict):
                 for channel_id, relayed_message in data["relayed_messages"].items():
                     try:
@@ -224,7 +227,8 @@ async def on_message_edit(before, after):
 @client.event
 async def on_message_delete(message):
     for unique_id, data in relayed_messages.items():
-        if data["original_message"].id == message.id:
+        logging.debug(f"Accessing relayed_messages for unique_id: {unique_id}")  # Add here
+        if data.get("original_message") and data["original_message"].id == message.id:
             if "relayed_messages" in data and isinstance(data["relayed_messages"], dict):
                 for channel_id, relayed_message in data["relayed_messages"].items():
                     try:
@@ -243,10 +247,10 @@ async def on_message_delete(message):
 @client.event
 async def on_reaction_add(reaction, user):
     for unique_id, data in relayed_messages.items():
-        if data["original_message"].id == reaction.message.id:
+        if data.get("original_message", {}).id == reaction.message.id:
             if "relayed_messages" in data and isinstance(data["relayed_messages"], dict):
                 logging.info(f"Reaction added by {user.name} in channel {reaction.message.channel.id}")
-                # You can handle additional reaction logic here
+                # Additional reaction logic can be handled here
             else:
                 logging.warning(f"'relayed_messages' key missing or invalid for unique_id {unique_id}.")
             break
