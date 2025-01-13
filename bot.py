@@ -171,18 +171,26 @@ async def on_message(message):
 # -------------------------------------------------------------------------
 
 async def manage_role(guild):
+    """
+    Ensure the 'PDH LFG Bot' role exists in the guild and assign it to the bot.
+    """
     try:
-        role = discord.utils.get(guild.roles, name="Cross-Server Bot")
+        # Check if the role exists
+        role = discord.utils.get(guild.roles, name="PDH LFG Bot")
+        
+        # If not, create it
         if not role:
-            role = await guild.create_role(name="Cross-Server Bot", mentionable=True)
-            logging.info(f"Created role {role.name} in server {guild.name}")
+            role = await guild.create_role(name="PDH LFG Bot", mentionable=True)
+            logging.info(f"Created role '{role.name}' in server '{guild.name}'")
+
+        # Ensure the bot has the role
         if role not in guild.me.roles:
             await guild.me.add_roles(role)
-            logging.info(f"Added role {role.name} to the bot in server {guild.name}")
+            logging.info(f"Added role '{role.name}' to the bot in server '{guild.name}'")
     except discord.Forbidden:
-        logging.warning(f"Missing permissions to manage roles in {guild.name}")
+        logging.warning(f"Missing permissions to manage roles in server '{guild.name}'")
     except discord.HTTPException as e:
-        logging.error(f"Error managing role in {guild.name}: {e}")
+        logging.error(f"Error managing role in server '{guild.name}': {e}")
 
 # -------------------------------------------------------------------------
 # Commands
