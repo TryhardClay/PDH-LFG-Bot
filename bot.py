@@ -80,18 +80,14 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
     """Send a message via a webhook and return the WebhookMessage object."""
     try:
         webhook = discord.Webhook.from_url(webhook_url, session=aiohttp.ClientSession())
-        embed_objects = [discord.Embed.from_dict(embed) for embed in embeds] if embeds else None
         message = await webhook.send(
-            content=content or "",
-            embeds=embed_objects,
-            username=username or "Bot",
+            content=content,
+            embeds=[discord.Embed.from_dict(embed) for embed in embeds] if embeds else None,
+            username=username,
             avatar_url=avatar_url,
-            wait=True  # Wait for the message to be sent and return it
+            wait=True,  # Wait for the message to be sent and return it
         )
         return message  # Return the WebhookMessage object
-    except discord.NotFound:
-        logging.error(f"Webhook not found: {webhook_url}")
-        return None
     except Exception as e:
         logging.error(f"An unexpected error occurred while sending webhook message: {e}")
         return None
@@ -219,15 +215,13 @@ async def manage_role(guild):
 @has_permissions(manage_channels=True)
 async def setchannel(interaction: discord.Interaction, channel: discord.TextChannel, filter: str):
     try:
-        # Acknowledge the interaction to avoid timeout
-        await interaction.response.defer(ephemeral=True)
-
         # Convert filter to lowercase for consistency
         filter = filter.lower()
 
         # Check if the filter is valid
         if filter not in ("casual", "cpdh"):
-            await interaction.followup.send("Invalid filter. Please specify either 'casual' or 'cpdh'.", ephemeral=True)
+            await interaction.response.send_message("Invalid filter. Please specify either 'casual' or 'cpdh'.",
+                                                    ephemeral=True)
             return
 
         webhook = await channel.create_webhook(name="Cross-Server Bot Webhook")
@@ -241,13 +235,11 @@ async def setchannel(interaction: discord.Interaction, channel: discord.TextChan
         save_webhook_data()
         save_channel_filters()
 
-        await interaction.followup.send(
+        await interaction.response.send_message(
             f"Cross-server communication channel set to {channel.mention} with filter '{filter}'.", ephemeral=True)
     except discord.Forbidden:
-        await interaction.followup.send("I don't have permission to create webhooks in that channel.", ephemeral=True)
-    except Exception as e:
-        logging.error(f"Error in /setchannel command: {e}")
-        await interaction.followup.send("An error occurred while setting the channel.", ephemeral=True)
+        await interaction.response.send_message("I don't have permission to create webhooks in that channel.",
+                                                ephemeral=True)
 
 @client.tree.command(name="disconnect", description="Disconnect a channel from cross-server communication.")
 @has_permissions(manage_channels=True)
@@ -348,14 +340,14 @@ async def biglfg(interaction: discord.Interaction):
             # Only send to channels with a matching filter or no filter
             if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
                 try:
-                    message_data = await send_webhook_message(
+                    message = await send_webhook_message(
                         webhook_data['url'],
                         embeds=[embed.to_dict()],
                         username=f"{interaction.user.name} from {interaction.guild.name}",
                         avatar_url=interaction.user.avatar.url if interaction.user.avatar else None
                     )
-                    if message_data:
-                        sent_messages[destination_channel_id] = message_data
+                    if message:
+                        sent_messages[destination_channel_id] = message
                     else:
                         logging.warning(f"Failed to send LFG request to {destination_channel_id}")
                 except Exception as e:
@@ -363,7 +355,7 @@ async def biglfg(interaction: discord.Interaction):
 
         # Check if at least one message was successfully sent
         if sent_messages:
-            embed_id = list(sent_messages.values())[0]["id"]  # Use the first successful message ID as the key
+            embed_id = list(sent_messages.values())[0].id  # Use the first successful message ID as the key
             active_embeds[embed_id] = {
                 "players": [initiating_player],
                 "channels": list(sent_messages.keys()),
@@ -410,8 +402,8 @@ async def lfg_timeout(embed_id):
         data = active_embeds.pop(embed_id)
         for channel_id, message in data["messages"].items():
             try:
-                # Ensure the message is a discord.Message-like object
-                if hasattr(message, "edit"):
+                # Ensure the message is a valid WebhookMessage
+                if isinstance(message, discord.WebhookMessage):
                     timeout_embed = discord.Embed(title="This request has timed out.", color=discord.Color.red())
                     await message.edit(embed=timeout_embed)
                 else:
