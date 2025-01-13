@@ -234,27 +234,42 @@ async def on_message_edit(before, after):
 
 @client.event
 async def on_message_delete(message):
-    """Handle message deletions and propagate them across associated channels."""
-    try:
-        for unique_id, data in relayed_messages.items():
-            if data["original_message"].id == message.id:
-                # Propagate the deletion
-                relayed_message = data["relayed_message"]
-                await relayed_message.delete()
-                del relayed_messages[unique_id]  # Remove from cache
-                logging.info(f"Message deleted across channels: {message.content}")
-                break
-        else:
-            logging.warning(f"Original message {message.id} not found in relayed_messages. Cannot propagate deletions.")
-    except Exception as e:
-        logging.error(f"Error in on_message_delete: {e}")
+    # Look for the original message in relayed_messages
+    for unique_id, data in relayed_messages.items():
+        if data["original_message"].id == message.id:
+            # Delete all relayed copies
+            for channel_id, relayed_message in data["relayed_messages"].items():
+                try:
+                    await relayed_message.delete()
+                except Exception as e:
+                    logging.error(f"Error deleting message in channel {channel_id}: {e}")
+
+            # Remove the entry from relayed_messages
+            del relayed_messages[unique_id]
+            logging.info(f"Deleted all relayed copies of message {message.id}")
+            return
+
+    logging.warning(f"Original message {message.id} not found in relayed_messages. Cannot propagate deletions.")
 
 @client.event
 async def on_reaction_add(reaction, user):
+    if user.bot:
+        return  # Ignore bot reactions
+
+    original_message_id = reaction.message.id
+
+    # Look for the original message in relayed_messages
     for unique_id, data in relayed_messages.items():
-        if data["original_message"].id == reaction.message.id:
-            for channel_id, message in data["relayed_message"].items():
-                await message.add_reaction(reaction.emoji)
+        if data["original_message"].id == original_message_id:
+            # Propagate the reaction to all relayed copies
+            for channel_id, relayed_message in data["relayed_messages"].items():
+                try:
+                    await relayed_message.add_reaction(reaction.emoji)
+                except Exception as e:
+                    logging.error(f"Error adding reaction in channel {channel_id}: {e}")
+            return
+
+    logging.warning(f"Original message {original_message_id} not found in relayed_messages. Cannot propagate reactions.")
 
 @client.event
 async def on_guild_remove(guild):
