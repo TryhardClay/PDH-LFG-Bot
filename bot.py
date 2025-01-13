@@ -99,13 +99,15 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
 
         try:
             async with session.post(webhook_url, json=data) as response:
-                if response.status == 204:  # Successful response with no content
-                    logging.info(f"Message sent to webhook at {webhook_url}.")
-                    return await response.json()  # Return the message object or data
+                if response.status == 204:
+                    logging.info(f"Message sent successfully to webhook at {webhook_url}.")
+                    return None  # No content to parse
+                elif response.status >= 200 and response.status < 300:
+                    logging.info(f"Message sent to webhook at {webhook_url} with response: {response.status}")
+                    return await response.json()  # Parse response only for non-204 success codes
                 else:
                     logging.error(f"Failed to send message. Status code: {response.status}")
                     logging.error(await response.text())
-
         except aiohttp.ClientError as e:
             logging.error(f"aiohttp.ClientError: {e}")
         except discord.HTTPException as e:
