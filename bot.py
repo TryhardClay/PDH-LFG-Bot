@@ -57,9 +57,6 @@ def load_channel_filters():
 WEBHOOK_URLS = load_webhook_data()
 CHANNEL_FILTERS = load_channel_filters()  # Load channel filters
 
-# Active embeds tracking
-active_embeds = {}  # {message_id: {"players": [], "task": timeout_task, "channels": [channel_ids]}}
-
 # Define intents (includes messages intent)
 intents = discord.Intents.default()
 intents.message_content = True
@@ -77,20 +74,31 @@ message_relay_task = None
 # -------------------------------------------------------------------------
 
 async def send_webhook_message(webhook_url, content=None, embeds=None, username=None, avatar_url=None):
-    """Send a message via a webhook and return the WebhookMessage object."""
-    try:
-        webhook = discord.Webhook.from_url(webhook_url, session=aiohttp.ClientSession())
-        message = await webhook.send(
-            content=content,
-            embeds=[discord.Embed.from_dict(embed) for embed in embeds] if embeds else None,
-            username=username,
-            avatar_url=avatar_url,
-            wait=True,  # Wait for the message to be sent and return it
-        )
-        return message  # Return the WebhookMessage object
-    except Exception as e:
-        logging.error(f"An unexpected error occurred while sending webhook message: {e}")
-        return None
+    async with aiohttp.ClientSession() as session:
+        data = {}
+        if content:
+            data["content"] = content
+        if embeds:
+            data["embeds"] = embeds
+        if username:
+            data["username"] = username
+        if avatar_url:
+            data["avatar_url"] = avatar_url
+
+        try:
+            async with session.post(webhook_url, json=data) as response:
+                if response.status != 204:  # Only log if the message failed to send
+                    logging.error(f"Failed to send message. Status code: {response.status}")
+                    logging.error(await response.text())
+
+        except aiohttp.ClientError as e:
+            logging.error(f"aiohttp.ClientError: {e}")
+        except discord.HTTPException as e:
+            logging.error(f"discord.HTTPException: {e}")
+        except Exception as e:
+            logging.error(f"An unexpected error occurred: {e}")
+
+    return None
 
 # -------------------------------------------------------------------------
 # Event Handlers
@@ -169,25 +177,6 @@ async def on_message(message):
 @client.event
 async def on_guild_remove(guild):
     pass  # Role management is handled elsewhere
-
-@client.event
-async def on_reaction_add(reaction, user):
-    """Handle player reactions to active LFG embeds."""
-    if user.bot:
-        return  # Ignore bot reactions
-
-    # Iterate through active embeds to check if the reaction belongs to one of them
-    for embed_id, data in active_embeds.items():
-        if reaction.message.id in [msg.id for msg in data["messages"].values()]:
-            # Ensure the user isn't already in the player list and reacted with 👍
-            if user.name not in data["players"] and str(reaction.emoji) == "👍":
-                data["players"].append(user.name)  # Add the user to the players list
-                await update_embeds(embed_id)  # Update all related embeds
-
-                # If the player limit is reached, complete the LFG request
-                if len(data["players"]) == 4:
-                    await lfg_complete(embed_id)
-            break  # No need to check further once the embed is identified
 
 # -------------------------------------------------------------------------
 # Role Management
@@ -321,54 +310,70 @@ async def about(interaction: discord.Interaction):
 @client.tree.command(name="biglfg", description="Create a cross-server LFG request.")
 async def biglfg(interaction: discord.Interaction):
     try:
-        await interaction.response.defer()
+        await interaction.response.defer()  # Defer the response
 
         source_channel_id = f'{interaction.guild.id}_{interaction.channel.id}'
         source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
-        initiating_player = interaction.user.name
 
         embed = discord.Embed(title="Looking for more players...", color=discord.Color.yellow())
-        embed.set_footer(text="React with 👍 to join! (3 players needed)")
-        embed.add_field(name="Players:", value=f"1. {initiating_player}", inline=False)
+        embed.set_footer(text="React with 👍 to join! (4 players needed)")
 
         sent_messages = {}
 
-        # Filter destination channels by their assigned filter
         for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
-            destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
+            if source_channel_id != destination_channel_id:
+                destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
+                if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
+                    try:
+                        message = await send_webhook_message(
+                            webhook_data['url'],
+                            embeds=[embed.to_dict()],
+                            username=f"{interaction.user.name} from {interaction.guild.name}",
+                            avatar_url=interaction.user.avatar.url if interaction.user.avatar else None
+                        )
+                        if message is None:  # Check if message sending failed
+                            logging.error(f"Failed to send LFG request to {destination_channel_id}")
+                            continue  # Skip to the next channel
 
-            # Only send to channels with a matching filter or no filter
-            if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
-                try:
-                    message = await send_webhook_message(
-                        webhook_data['url'],
-                        embeds=[embed.to_dict()],
-                        username=f"{interaction.user.name} from {interaction.guild.name}",
-                        avatar_url=interaction.user.avatar.url if interaction.user.avatar else None
-                    )
-                    if message:
                         sent_messages[destination_channel_id] = message
-                    else:
-                        logging.warning(f"Failed to send LFG request to {destination_channel_id}")
-                except Exception as e:
-                    logging.error(f"Error sending LFG request to {destination_channel_id}: {e}")
+                    except Exception as e:
+                        logging.error(f"Error sending LFG request: {e}")
 
-        # Check if at least one message was successfully sent
-        if sent_messages:
-            embed_id = list(sent_messages.values())[0].id  # Use the first successful message ID as the key
-            active_embeds[embed_id] = {
-                "players": [initiating_player],
-                "channels": list(sent_messages.keys()),
-                "messages": sent_messages,
-            }
+        async def update_embed(message, players):
+            if len(players) == 4:
+                new_embed = discord.Embed(title="Your game is ready!", color=discord.Color.green())
+                new_embed.add_field(name="Players:", value="\n".join(players), inline=False)
+            else:
+                new_embed = discord.Embed(title="This request has timed out.", color=discord.Color.red())
+            try:
+                await message.edit(embed=new_embed)
+            except discord.HTTPException as e:
+                logging.error(f"Error editing embed: {e}")
 
-            # Start timeout task
-            active_embeds[embed_id]["task"] = asyncio.create_task(lfg_timeout(embed_id))
+        try:
+            players = []
+            for i in range(15 * 60):  # Timeout after 15 minutes
+                for destination_channel_id, message in sent_messages.items():
+                    if message is not None:
+                        cache_msg = discord.utils.get(client.cached_messages, id=message.id)
+                        if cache_msg:
+                            for reaction in cache_msg.reactions:
+                                if str(reaction.emoji) == "👍":
+                                    async for user in reaction.users():
+                                        if user != client.user and user.name not in players:
+                                            players.append(user.name)
+                                            if len(players) == 4:
+                                                await update_embed(message, players)
+                                                return
 
-            # Confirmation message
-            await interaction.followup.send("LFG request sent across channels.", ephemeral=True)
-        else:
-            await interaction.followup.send("Failed to send LFG request to any channels.", ephemeral=True)
+                await asyncio.sleep(1)
+
+            for destination_channel_id, message in sent_messages.items():
+                if message is not None:  # Ensure message is not None before updating
+                    await update_embed(message, players)
+
+        except Exception as e:
+            logging.error(f"Error during LFG process: {e}")
 
     except Exception as e:
         logging.error(f"Error in /biglfg command: {e}")
@@ -376,6 +381,7 @@ async def biglfg(interaction: discord.Interaction):
             await interaction.followup.send("An error occurred while processing the LFG request.", ephemeral=True)
         except discord.HTTPException as e:
             logging.error(f"Error sending error message: {e}")
+
 
 # -------------------------------------------------------------------------
 # Helper Functions
@@ -394,43 +400,6 @@ def save_channel_filters():
             json.dump(CHANNEL_FILTERS, f, indent=4)
     except Exception as e:
         logging.error(f"Error saving channel filters to {CHANNEL_FILTERS_PATH}: {e}")
-
-async def lfg_timeout(embed_id):
-    """Handle timeout for an LFG embed."""
-    await asyncio.sleep(15 * 60)  # Wait 15 minutes
-    if embed_id in active_embeds:
-        data = active_embeds.pop(embed_id)
-        for channel_id, message in data["messages"].items():
-            try:
-                # Ensure the message is a valid WebhookMessage
-                if isinstance(message, discord.WebhookMessage):
-                    timeout_embed = discord.Embed(title="This request has timed out.", color=discord.Color.red())
-                    await message.edit(embed=timeout_embed)
-                else:
-                    logging.error(f"Message in channel {channel_id} is not editable: {message}")
-            except Exception as e:
-                logging.error(f"Error updating embed on timeout in channel {channel_id}: {e}")
-
-async def update_embeds(embed_id):
-    """Update all related embeds with the current player list."""
-    data = active_embeds[embed_id]
-    players = data["players"]
-
-    for channel_id, message in data["messages"].items():
-        try:
-            if len(players) < 4:
-                embed = discord.Embed(
-                    title="Looking for more players...",
-                    color=discord.Color.yellow(),
-                    description=f"React with 👍 to join! ({4 - len(players)} players needed)",
-                )
-            else:
-                embed = discord.Embed(title="Your game is ready!", color=discord.Color.green())
-
-            embed.add_field(name="Players:", value="\n".join([f"{i + 1}. {name}" for i, name in enumerate(players)]), inline=False)
-            await message.edit(embed=embed)
-        except Exception as e:
-            logging.error(f"Error updating embed in channel {channel_id}: {e}")
 
 # -------------------------------------------------------------------------
 # Message Relay Loop
