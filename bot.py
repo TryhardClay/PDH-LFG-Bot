@@ -159,7 +159,7 @@ async def on_message(message):
                         source_filter == 'none' or
                         destination_filter == 'none'):
                     try:
-                        # Log inside the loop where webhook_data is defined
+                        # Logging inside the loop where webhook_data is in scope
                         logging.debug(f"Sending webhook message to {webhook_data['url']} with content: {content} and embeds: {embeds}")
 
                         # Send the message through the webhook
