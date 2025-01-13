@@ -56,12 +56,7 @@ def load_channel_filters():
 
 WEBHOOK_URLS = load_webhook_data()
 CHANNEL_FILTERS = load_channel_filters()
-active_embeds = {
-    embed_id: {
-        "players": {},  # Empty dictionary for user_id and display_name pairs
-        "messages": {},  # Empty dictionary for channel_id and message objects
-    }
-}
+active_embeds = {}
 
 # Define intents (includes messages intent)
 intents = discord.Intents.default()
