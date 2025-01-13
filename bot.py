@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import logging
+import uuid
 from discord.ext import commands, tasks
 from discord.ext.commands import has_permissions
 from discord.ui import Button, View
@@ -353,6 +354,9 @@ async def biglfg(interaction: discord.Interaction):
     try:
         await interaction.response.defer()
 
+        # Generate a unique UUID for this LFG instance
+        lfg_uuid = str(uuid.uuid4())
+
         source_channel_id = f'{interaction.guild.id}_{interaction.channel.id}'
         source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
         initiating_player = interaction.user
@@ -373,23 +377,29 @@ async def biglfg(interaction: discord.Interaction):
         view = discord.ui.View(timeout=15 * 60)  # 15-minute timeout
 
         async def join_button_callback(button_interaction: discord.Interaction):
-            embed_id = button_interaction.message.id
+            if lfg_uuid not in active_embeds:
+                await button_interaction.response.send_message("This LFG request is no longer active.", ephemeral=True)
+                return
+
             user_id = button_interaction.user.id
             display_name = button_interaction.user.name
 
-            if embed_id in active_embeds and user_id not in active_embeds[embed_id]["players"]:
-                active_embeds[embed_id]["players"][user_id] = display_name
-                await update_embeds(embed_id)
+            if user_id not in active_embeds[lfg_uuid]["players"]:
+                active_embeds[lfg_uuid]["players"][user_id] = display_name
+                await update_embeds(lfg_uuid)
 
             await button_interaction.response.defer()
 
         async def leave_button_callback(button_interaction: discord.Interaction):
-            embed_id = button_interaction.message.id
+            if lfg_uuid not in active_embeds:
+                await button_interaction.response.send_message("This LFG request is no longer active.", ephemeral=True)
+                return
+
             user_id = button_interaction.user.id
 
-            if embed_id in active_embeds and user_id in active_embeds[embed_id]["players"]:
-                del active_embeds[embed_id]["players"][user_id]
-                await update_embeds(embed_id)
+            if user_id in active_embeds[lfg_uuid]["players"]:
+                del active_embeds[lfg_uuid]["players"][user_id]
+                await update_embeds(lfg_uuid)
 
             await button_interaction.response.defer()
 
@@ -416,11 +426,10 @@ async def biglfg(interaction: discord.Interaction):
 
         # Store active embed data
         if sent_messages:
-            embed_id = list(sent_messages.values())[0].id
-            active_embeds[embed_id] = {
+            active_embeds[lfg_uuid] = {
                 "players": {initiating_player.id: initiating_player.name},
                 "messages": sent_messages,
-                "task": asyncio.create_task(lfg_timeout(embed_id)),
+                "task": asyncio.create_task(lfg_timeout(lfg_uuid)),
             }
 
             await interaction.followup.send("LFG request sent across channels.", ephemeral=True)
