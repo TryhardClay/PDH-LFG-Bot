@@ -130,39 +130,44 @@ async def on_guild_join(guild):
 
 @client.event
 async def on_message(message):
+    # Check if the message is from the bot itself (to prevent infinite loops)
     if message.author == client.user:
         return
 
+    # If the message was sent by a webhook and isn't our bot, ignore it
     if message.webhook_id and message.author.id != client.user.id:
         return
 
-    # Ensure content is never None (set to an empty string if None)
+    # Ensure that content is never None
     content = message.content if message.content is not None else ""
 
-    # Ensure embeds are correctly converted from message
+    # Prepare embeds (if any)
     embeds = [embed.to_dict() for embed in message.embeds]
 
-    # If there are attachments, append the URLs to the content
+    # Add attachment URLs to content if there are any attachments
     if message.attachments:
         content += "\n" + "\n".join([attachment.url for attachment in message.attachments])
 
     source_channel_id = f'{message.guild.id}_{message.channel.id}'
 
     if source_channel_id in WEBHOOK_URLS:
+        # Retrieve the filter settings for the source channel
         source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
 
+        # Loop over the destination channels
         for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
             if source_channel_id != destination_channel_id:
                 destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
 
+                # Check if the source and destination filters match
                 if (source_filter == destination_filter or
                         source_filter == 'none' or
                         destination_filter == 'none'):
                     try:
-                        # Logging inside the loop where webhook_data is in scope
+                        # Log the sending of the webhook message inside the loop
                         logging.debug(f"Sending webhook message to {webhook_data['url']} with content: {content} and embeds: {embeds}")
 
-                        # Send the message through the webhook
+                        # Send the webhook message
                         message = await send_webhook_message(
                             webhook_data['url'],
                             content=content,
@@ -172,7 +177,6 @@ async def on_message(message):
                         )
                     except Exception as e:
                         logging.error(f"Error relaying message: {e}")
-
 @client.event
 async def on_guild_remove(guild):
     pass  # Role management is handled elsewhere
