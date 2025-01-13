@@ -61,9 +61,9 @@ CHANNEL_FILTERS = load_channel_filters()  # Load channel filters
 active_embeds = {
     "embed_id": {
         "players": ["Player1"],
-        "task": None,  # Replace with an actual asyncio task if needed
-        "messages": {},  # Initialize as an empty dictionary
-    },
+        "task": None,  # Replace None with an actual asyncio.Task object as needed
+        "messages": {},  # Empty dictionary to populate dynamically
+    }
 }
 
 # Define intents (includes messages intent)
@@ -184,17 +184,15 @@ async def on_message(message):
                         logging.error(f"Error relaying message: {e}")
 
 @client.event
-@client.event
 async def on_reaction_add(reaction, user):
     """Handle player reactions to active LFG embeds."""
     if user.bot:
         return  # Ignore bot reactions
 
+    logging.debug(f"Reaction added by {user.name} with emoji {reaction.emoji}")
+
     for embed_id, data in active_embeds.items():
         if reaction.message.id in [msg.id for msg in data["messages"].values()]:
-            logging.debug(f"Reaction added by {user.name} with emoji {reaction.emoji}")
-            logging.debug(f"Active embed IDs: {list(active_embeds.keys())}")
-            
             if str(reaction.emoji) == "👍":
                 # Add the user to the player list
                 if user.name not in data["players"]:
