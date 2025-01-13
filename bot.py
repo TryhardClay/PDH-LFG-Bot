@@ -110,7 +110,34 @@ async def on_ready():
     await client.tree.sync()
     global message_relay_task
     if message_relay_task is None or message_relay_task.done():
+        # Create a new task for the message relay loop
         message_relay_task = asyncio.create_task(message_relay_loop())
+
+async def message_relay_loop():
+    """Relay messages from one server to another."""
+    while True:
+        try:
+            # Check for new messages every second
+            await asyncio.sleep(1)  # Adjust sleep as needed
+
+            # Example: loop through messages and relay them
+            if MESSAGE_QUEUE:
+                message = MESSAGE_QUEUE.pop(0)  # Pop the first message to send
+                source_channel_id = str(message.channel.id)
+                
+                # Check for available webhooks for this source channel
+                webhook_urls = WEBHOOK_URLS.get(source_channel_id, [])
+
+                if webhook_urls:
+                    message_content = f"**{message.author.display_name}**: {message.content}"
+                    username = message.author.display_name
+                    avatar_url = message.author.avatar.url if message.author.avatar else None
+
+                    for webhook_url in webhook_urls:
+                        # Relay the message through the webhook
+                        await send_webhook_message(webhook_url, content=message_content, username=username, avatar_url=avatar_url)
+        except Exception as e:
+            logging.error(f"Error in message relay loop: {e}")
 
 @client.event
 async def on_guild_join(guild):
