@@ -93,15 +93,21 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
 
         try:
             async with session.post(webhook_url, json=data) as response:
-                if response.status != 204:
+                if response.status == 204:  # Successful response with no content
+                    logging.info(f"Message sent to webhook at {webhook_url}.")
+                    return await response.json()  # Return the message object or data
+                else:
                     logging.error(f"Failed to send message. Status code: {response.status}")
                     logging.error(await response.text())
+
         except aiohttp.ClientError as e:
             logging.error(f"aiohttp.ClientError: {e}")
         except discord.HTTPException as e:
             logging.error(f"discord.HTTPException: {e}")
         except Exception as e:
-            logging.error(f"Unexpected error occurred: {e}")
+            logging.error(f"An unexpected error occurred: {e}")
+
+    return None
 
 def save_webhook_data():
     try:
@@ -341,7 +347,6 @@ async def about(interaction: discord.Interaction):
         logging.error(f"Error in /about command: {e}")
         await interaction.response.send_message("An error occurred while processing the command.", ephemeral=True)
 
-
 @client.tree.command(name="biglfg", description="Create a cross-server LFG request.")
 async def biglfg(interaction: discord.Interaction):
     try:
@@ -357,9 +362,11 @@ async def biglfg(interaction: discord.Interaction):
 
         sent_messages = {}
 
+        # Filter destination channels by their assigned filter
         for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
             destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
 
+            # Only send to channels with a matching filter or no filter
             if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
                 try:
                     message = await send_webhook_message(
@@ -369,10 +376,14 @@ async def biglfg(interaction: discord.Interaction):
                         avatar_url=interaction.user.avatar.url if interaction.user.avatar else None
                     )
                     if message:
+                        # Track the sent message in `active_embeds`
                         sent_messages[destination_channel_id] = message
+                    else:
+                        logging.warning(f"Failed to send LFG request to {destination_channel_id}")
                 except Exception as e:
                     logging.error(f"Error sending LFG request to {destination_channel_id}: {e}")
 
+        # Check if at least one message was successfully sent
         if sent_messages:
             embed_id = list(sent_messages.values())[0].id  # Use the first successful message ID as the key
             active_embeds[embed_id] = {
@@ -381,14 +392,17 @@ async def biglfg(interaction: discord.Interaction):
                 "messages": sent_messages,
                 "task": asyncio.create_task(lfg_timeout(embed_id)),
             }
-
+            logging.info(f"Embed successfully tracked with ID {embed_id}.")
             await interaction.followup.send("LFG request sent across channels.", ephemeral=True)
         else:
             await interaction.followup.send("Failed to send LFG request to any channels.", ephemeral=True)
 
     except Exception as e:
         logging.error(f"Error in /biglfg command: {e}")
-        await interaction.followup.send("An error occurred while processing the LFG request.", ephemeral=True)
+        try:
+            await interaction.followup.send("An error occurred while processing the LFG request.", ephemeral=True)
+        except discord.HTTPException as e:
+            logging.error(f"Error sending error message: {e}")
 
 # -------------------------------------------------------------------------
 # Helper Functions
