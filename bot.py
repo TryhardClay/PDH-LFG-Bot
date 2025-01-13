@@ -6,6 +6,7 @@ import os
 import logging
 from discord.ext import commands, tasks
 from discord.ext.commands import has_permissions
+from discord.ui import Button, View
 
 # -------------------------------------------------------------------------
 # Setup and Configuration
@@ -356,52 +357,76 @@ async def biglfg(interaction: discord.Interaction):
         source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
         initiating_player = interaction.user.name
 
+        # Create the embed
         embed = discord.Embed(title="Looking for more players...", color=discord.Color.yellow())
-        embed.set_footer(text="React with 👍 to join! React with 👎 to leave. (3 players needed)")
         embed.add_field(name="Players:", value=f"1. {initiating_player}", inline=False)
+        embed.add_field(name="\u200b", value="**REACT BELOW (3 players needed)**", inline=False)
+
+        # Create the buttons
+        join_button = Button(label="JOIN", style=discord.ButtonStyle.success)  # Green button
+        leave_button = Button(label="LEAVE", style=discord.ButtonStyle.danger)  # Red button
+
+        # Define button callbacks
+        async def join_button_callback(button_interaction: discord.Interaction):
+            embed_id = interaction.message.id
+            if button_interaction.user.name not in active_embeds[embed_id]["players"]:
+                active_embeds[embed_id]["players"].append(button_interaction.user.name)
+                await update_embeds(embed_id)
+
+                # Check if the game is ready
+                if len(active_embeds[embed_id]["players"]) == 4:
+                    await lfg_complete(embed_id)
+
+            await button_interaction.response.defer()
+
+        async def leave_button_callback(button_interaction: discord.Interaction):
+            embed_id = interaction.message.id
+            if button_interaction.user.name in active_embeds[embed_id]["players"]:
+                active_embeds[embed_id]["players"].remove(button_interaction.user.name)
+                await update_embeds(embed_id)
+
+            await button_interaction.response.defer()
+
+        # Attach callbacks to buttons
+        join_button.callback = join_button_callback
+        leave_button.callback = leave_button_callback
+
+        # Add buttons to the view
+        view = View()
+        view.add_item(join_button)
+        view.add_item(leave_button)
 
         sent_messages = {}
 
         # Filter destination channels by their assigned filter
-        for destination_channel_id in WEBHOOK_URLS.keys():
+        for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
             destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
 
             # Only send to channels with a matching filter or no filter
             if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
-                guild_id, channel_id = map(int, destination_channel_id.split('_'))
-                guild = client.get_guild(guild_id)
-                channel = guild.get_channel(channel_id)
+                try:
+                    message = await interaction.channel.send(embed=embed, view=view)
+                    sent_messages[destination_channel_id] = message
+                except Exception as e:
+                    logging.error(f"Error sending LFG request to {destination_channel_id}: {e}")
 
-                if channel and channel.permissions_for(guild.me).send_messages:
-                    try:
-                        message = await channel.send(embed=embed)
-                        sent_messages[destination_channel_id] = message
-                        await message.add_reaction("👍")
-                        await message.add_reaction("👎")
-                    except Exception as e:
-                        logging.error(f"Error sending LFG request to {destination_channel_id}: {e}")
-
-        # Check if at least one message was successfully sent
+        # Track the embed in memory
         if sent_messages:
-            embed_id = list(sent_messages.values())[0].id  # Use the first successful message ID as the key
+            embed_id = list(sent_messages.values())[0].id
             active_embeds[embed_id] = {
                 "players": [initiating_player],
                 "channels": list(sent_messages.keys()),
                 "messages": sent_messages,
                 "task": asyncio.create_task(lfg_timeout(embed_id)),
             }
-            logging.info(f"Embed successfully tracked with ID {embed_id}.")
+
+            # Confirmation message
             await interaction.followup.send("LFG request sent across channels.", ephemeral=True)
         else:
             await interaction.followup.send("Failed to send LFG request to any channels.", ephemeral=True)
 
     except Exception as e:
         logging.error(f"Error in /biglfg command: {e}")
-        try:
-            await interaction.followup.send("An error occurred while processing the LFG request.", ephemeral=True)
-        except discord.HTTPException as e:
-            logging.error(f"Error sending error message: {e}")
-
 # -------------------------------------------------------------------------
 # Helper Functions
 # -------------------------------------------------------------------------
@@ -425,37 +450,29 @@ def save_channel_filters():
 
 async def update_embeds(embed_id):
     """Update all related embeds with the current player list."""
-    try:
-        data = active_embeds[embed_id]
-        players = data["players"]
-        messages = data["messages"]
+    data = active_embeds[embed_id]
+    players = data["players"]
+    remaining_slots = 4 - len(players)
 
-        # Construct the embed
-        if len(players) < 4:
-            embed = discord.Embed(
-                title="Looking for more players...",
-                color=discord.Color.yellow(),
-                description=f"React with 👍 to join! React with 👎 to leave. ({4 - len(players)} players needed)"
-            )
-        else:
-            embed = discord.Embed(title="Your game is ready!", color=discord.Color.green())
-
-        embed.add_field(
-            name="Players:",
-            value="\n".join([f"{i + 1}. {name}" for i, name in enumerate(players)]),
-            inline=False,
-        )
-
-        # Update all messages associated with the embed
-        for channel_id, message in messages.items():
-            try:
-                await message.edit(embed=embed)
-                logging.info(f"Updated embed in channel {channel_id} for embed ID {embed_id}.")
-            except Exception as e:
-                logging.error(f"Error updating embed in channel {channel_id}: {e}")
-
-    except Exception as e:
-        logging.error(f"Error in update_embeds for embed ID {embed_id}: {e}")
+    for channel_id, message in data["messages"].items():
+        try:
+            if remaining_slots > 0:
+                embed = discord.Embed(
+                    title="Looking for more players...",
+                    color=discord.Color.yellow(),
+                )
+                embed.add_field(name="Players:", value="\n".join([f"{i + 1}. {name}" for i, name in enumerate(players)]), inline=False)
+                embed.add_field(name="\u200b", value=f"**REACT BELOW ({remaining_slots} players needed)**", inline=False)
+            else:
+                embed = discord.Embed(title="Your game is ready!", color=discord.Color.green())
+                embed.add_field(
+                    name="Players:",
+                    value="\n".join([f"{i + 1}. {name}" for i, name in enumerate(players)]),
+                    inline=False,
+                )
+            await message.edit(embed=embed)
+        except Exception as e:
+            logging.error(f"Error updating embed in channel {channel_id}: {e}")
 
 async def lfg_complete(embed_id):
     """Mark the LFG request as complete."""
