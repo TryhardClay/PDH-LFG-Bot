@@ -132,31 +132,21 @@ def save_channel_filters():
         logging.error(f"Error saving channel filters: {e}")
 
 async def relay_message(source_message, destination_channel):
-    """
-    Relay a message from one server/channel to another and store its UUID.
-    """
-    try:
-        unique_id = str(uuid.uuid4())  # Generate a unique UUID for the message
-        relayed_message = await destination_channel.send(content=source_message.content)
+    unique_id = str(uuid.uuid4())  # Generate a unique message ID
+    relayed_message = await destination_channel.send(content=source_message.content)
 
-        # Ensure both the original and relayed messages are tracked
+    # Store the message ID and its corresponding Discord message objects
+    if unique_id not in relayed_messages:
         relayed_messages[unique_id] = {
-            "original_message_id": source_message.id,
-            "relayed_message_ids": [relayed_message.id],  # Start tracking with the first relayed message
+            "original_message": source_message,
+            "relayed_messages": {}
         }
+    relayed_messages[unique_id]["relayed_messages"][destination_channel.id] = relayed_message
 
-        logging.info(f"Message relayed from {source_message.channel.name} to {destination_channel.name}.")
-        logging.info(f"Stored UUID {unique_id} for original message {source_message.id}.")
+    # Debug log to inspect the state of relayed_messages
+    logging.debug(f"Current state of relayed_messages: {json.dumps(relayed_messages, default=str, indent=4)}")
 
-        return unique_id
-    except discord.Forbidden:
-        logging.error(f"Missing permissions to send a message in {destination_channel.name}.")
-    except discord.HTTPException as e:
-        logging.error(f"Failed to relay message to {destination_channel.name}: {e}")
-    except Exception as e:
-        logging.error(f"Unexpected error in relay_message: {e}")
-
-    return None
+    return unique_id
 
 # -------------------------------------------------------------------------
 # Event Handlers
