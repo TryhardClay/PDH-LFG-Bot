@@ -189,160 +189,53 @@ async def on_guild_join(guild):
 
 @client.event
 async def on_message(message):
-    if message.author == client.user:
-        return
-
-    if message.webhook_id and message.author.id != client.user.id:
-        return
-
-    content = message.content
-    embeds = [embed.to_dict() for embed in message.embeds]
-    if message.attachments:
-        content += "\n" + "\n".join([attachment.url for attachment in message.attachments])
+    if message.author == client.user or message.webhook_id:
+        return  # Ignore bot and webhook messages
 
     source_channel_id = f'{message.guild.id}_{message.channel.id}'
+    content = message.content
+    embeds = [embed.to_dict() for embed in message.embeds]
+    attachments = "\n".join([attachment.url for attachment in message.attachments]) if message.attachments else ""
 
     if source_channel_id in WEBHOOK_URLS:
         source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
-
-        for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
+        for destination_channel_id in WEBHOOK_URLS:
             if source_channel_id != destination_channel_id:
                 destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
-
-                if (source_filter == destination_filter or
-                        source_filter == 'none' or
-                        destination_filter == 'none'):
-                    try:
-                        message = await send_webhook_message(
-                            webhook_data['url'],
-                            content=content,
-                            embeds=embeds,
-                            username=f"{message.author.name} from {message.guild.name}",
-                            avatar_url=message.author.avatar.url if message.author.avatar else None
+                if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
+                    channel = client.get_channel(int(destination_channel_id.split('_')[1]))
+                    if channel:
+                        relayed_message = await channel.send(
+                            content=f"{content}\n{attachments}",
+                            embeds=embeds
                         )
-                        
-                        # This is the fix for the 'NoneType' object error
-                        if message is not None:     
-                            for reaction in message.reactions:
-                                try:
-                                    await reaction.message.add_reaction(reaction.emoji)
-                                except discord.HTTPException as e:
-                                    logging.error(f"Error adding reaction: {e}")
-
-                    except Exception as e:
-                        logging.error(f"Error relaying message: {e}")
+                        unique_id = str(uuid.uuid4())
+                        relayed_messages[unique_id] = {
+                            "original_message": message,
+                            "relayed_message": relayed_message
+                        }
 
 @client.event
 async def on_message_edit(before, after):
-    """Handle editing of an original message and propagate changes to relayed messages."""
-    found_uuid = None
-
-    # Find the UUID associated with the edited message
     for unique_id, data in relayed_messages.items():
-        if data["original_message_id"] == before.id:
-            found_uuid = unique_id
-            break
-
-    if not found_uuid:
-        logging.warning(f"Original message {before.id} not found in relayed_messages. Cannot propagate edits.")
-        return
-
-    # Propagate edits to relayed messages
-    try:
-        data = relayed_messages[found_uuid]
-        for relayed_id in data["relayed_message_ids"]:
-            for channel in client.get_all_channels():
-                if isinstance(channel, discord.TextChannel):
-                    try:
-                        relayed_message = await channel.fetch_message(relayed_id)
-                        await relayed_message.edit(content=after.content)
-                        logging.info(f"Edited relayed message {relayed_id} in {channel.name}.")
-                    except discord.NotFound:
-                        logging.warning(f"Message {relayed_id} not found in channel {channel.name}. Skipping.")
-                    except discord.Forbidden:
-                        logging.error(f"Missing permissions to edit message {relayed_id} in {channel.name}.")
-                    except Exception as e:
-                        logging.error(f"Error editing relayed message {relayed_id} in {channel.name}: {e}")
-    except KeyError:
-        logging.error(f"UUID {found_uuid} unexpectedly missing from relayed_messages.")
-    except Exception as e:
-        logging.error(f"Unexpected error in on_message_edit: {e}")
+        if data["original_message"].id == before.id:
+            for channel_id, message in data["relayed_message"].items():
+                await message.edit(content=after.content)
 
 @client.event
 async def on_message_delete(message):
-    """Handle deletion of an original message and propagate deletions to relayed messages."""
-    found_uuid = None
-
-    # Locate the UUID associated with the deleted message
     for unique_id, data in relayed_messages.items():
-        if data["original_message_id"] == message.id:
-            found_uuid = unique_id
-            break
-
-    if not found_uuid:
-        logging.warning(f"Original message {message.id} not found in relayed_messages. Cannot propagate deletions.")
-        return
-
-    # Propagate deletions to relayed messages
-    try:
-        data = relayed_messages[found_uuid]
-        for relayed_id in data["relayed_message_ids"]:
-            for channel in client.get_all_channels():
-                if isinstance(channel, discord.TextChannel):
-                    try:
-                        relayed_message = await channel.fetch_message(relayed_id)
-                        await relayed_message.delete()
-                        logging.info(f"Deleted relayed message {relayed_id} in {channel.name}.")
-                    except discord.NotFound:
-                        logging.warning(f"Message {relayed_id} not found in channel {channel.name}. Skipping.")
-                    except discord.Forbidden:
-                        logging.error(f"Missing permissions to delete message {relayed_id} in {channel.name}.")
-                    except Exception as e:
-                        logging.error(f"Error deleting relayed message {relayed_id} in {channel.name}: {e}")
-
-        # Remove the UUID entry from relayed_messages
-        del relayed_messages[found_uuid]
-        logging.info(f"Removed UUID {found_uuid} from relayed_messages after deletion.")
-    except KeyError:
-        logging.error(f"UUID {found_uuid} unexpectedly missing from relayed_messages.")
-    except Exception as e:
-        logging.error(f"Unexpected error in on_message_delete: {e}")
+        if data["original_message"].id == message.id:
+            for channel_id, message in data["relayed_message"].items():
+                await message.delete()
+            del relayed_messages[unique_id]
 
 @client.event
 async def on_reaction_add(reaction, user):
-    """Handle player reactions to active LFG embeds."""
-    if user.bot:
-        return  # Ignore bot reactions
-
-    # Fetch the message to ensure we are working with the latest data
-    try:
-        message = reaction.message
-        if message.id not in active_embeds:
-            logging.info(f"Reaction ignored: Message ID {message.id} not in active embeds.")
-            return
-
-        embed_data = active_embeds[message.id]
-
-        # Handle 👍 reaction
-        if str(reaction.emoji) == "👍":
-            if user.name not in embed_data["players"]:
-                embed_data["players"].append(user.name)
-                logging.info(f"Added {user.name} to the player list for embed {message.id}.")
-                await update_embeds(message.id)
-
-                # If the player limit is reached, complete the LFG request
-                if len(embed_data["players"]) == 4:
-                    await lfg_complete(message.id)
-
-        # Handle 👎 reaction
-        elif str(reaction.emoji) == "👎":
-            if user.name in embed_data["players"]:
-                embed_data["players"].remove(user.name)
-                logging.info(f"Removed {user.name} from the player list for embed {message.id}.")
-                await update_embeds(message.id)
-
-    except Exception as e:
-        logging.error(f"Error in on_reaction_add: {e}")
+    for unique_id, data in relayed_messages.items():
+        if data["original_message"].id == reaction.message.id:
+            for channel_id, message in data["relayed_message"].items():
+                await message.add_reaction(reaction.emoji)
 
 @client.event
 async def on_guild_remove(guild):
@@ -462,95 +355,71 @@ async def about(interaction: discord.Interaction):
 async def biglfg(interaction: discord.Interaction):
     try:
         await interaction.response.defer()
-
-        # Generate a unique UUID for this LFG instance
         lfg_uuid = str(uuid.uuid4())
-
-        source_channel_id = f'{interaction.guild.id}_{interaction.channel.id}'
-        source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
+        source_filter = CHANNEL_FILTERS.get(f'{interaction.guild.id}_{interaction.channel.id}', 'none')
         initiating_player = interaction.user
 
-        # Create the embed
         embed = discord.Embed(
             title="Looking for more players...",
-            color=discord.Color.yellow()
+            color=discord.Color.yellow(),
         )
         embed.set_footer(text="REACT BELOW (3 players needed)")
         embed.add_field(
             name="Players:",
             value=f"1. {initiating_player.name}",
-            inline=False
+            inline=False,
         )
 
-        # Define the buttons
-        view = discord.ui.View(timeout=15 * 60)  # 15-minute timeout
+        view = discord.ui.View(timeout=15 * 60)
 
-        async def join_button_callback(button_interaction: discord.Interaction):
+        async def join_callback(button_interaction: discord.Interaction):
             if lfg_uuid not in active_embeds:
-                await button_interaction.response.send_message("This LFG request is no longer active.", ephemeral=True)
+                await button_interaction.response.send_message("This LFG request has expired.", ephemeral=True)
                 return
-
             user_id = button_interaction.user.id
             display_name = button_interaction.user.name
-
             if user_id not in active_embeds[lfg_uuid]["players"]:
                 active_embeds[lfg_uuid]["players"][user_id] = display_name
                 await update_embeds(lfg_uuid)
+                await button_interaction.response.defer()
 
-            await button_interaction.response.defer()
-
-        async def leave_button_callback(button_interaction: discord.Interaction):
+        async def leave_callback(button_interaction: discord.Interaction):
             if lfg_uuid not in active_embeds:
-                await button_interaction.response.send_message("This LFG request is no longer active.", ephemeral=True)
+                await button_interaction.response.send_message("This LFG request has expired.", ephemeral=True)
                 return
-
             user_id = button_interaction.user.id
-
             if user_id in active_embeds[lfg_uuid]["players"]:
                 del active_embeds[lfg_uuid]["players"][user_id]
                 await update_embeds(lfg_uuid)
-
-            await button_interaction.response.defer()
+                await button_interaction.response.defer()
 
         join_button = discord.ui.Button(style=discord.ButtonStyle.success, label="JOIN")
         leave_button = discord.ui.Button(style=discord.ButtonStyle.danger, label="LEAVE")
-
-        join_button.callback = join_button_callback
-        leave_button.callback = leave_button_callback
+        join_button.callback = join_callback
+        leave_button.callback = leave_callback
 
         view.add_item(join_button)
         view.add_item(leave_button)
 
-        # Distribute the embed to all channels
         sent_messages = {}
+        for destination_channel_id in WEBHOOK_URLS:
+            channel = client.get_channel(int(destination_channel_id.split('_')[1]))
+            if channel:
+                sent_messages[destination_channel_id] = await channel.send(embed=embed, view=view)
 
-        for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
-            destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
-
-            if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
-                channel = client.get_channel(int(destination_channel_id.split('_')[1]))
-                if channel:
-                    sent_message = await channel.send(embed=embed, view=view)
-                    sent_messages[destination_channel_id] = sent_message
-
-        # Store active embed data
         if sent_messages:
             active_embeds[lfg_uuid] = {
                 "players": {initiating_player.id: initiating_player.name},
                 "messages": sent_messages,
                 "task": asyncio.create_task(lfg_timeout(lfg_uuid)),
             }
-
             await interaction.followup.send("LFG request sent across channels.", ephemeral=True)
         else:
-            await interaction.followup.send("Failed to send LFG request to any channels.", ephemeral=True)
+            await interaction.followup.send("No channels available for this LFG request.", ephemeral=True)
 
     except Exception as e:
-        logging.error(f"Error in /biglfg command: {e}")
-        try:
-            await interaction.followup.send("An error occurred while processing the LFG request.", ephemeral=True)
-        except discord.HTTPException as e:
-            logging.error(f"Error sending error message: {e}")
+        logging.error(f"Error in /biglfg: {e}")
+        await interaction.followup.send("An error occurred while processing the request.", ephemeral=True)
 
 # -------------------------------------------------------------------------
 # Helper Functions
