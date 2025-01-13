@@ -132,18 +132,25 @@ def save_channel_filters():
         logging.error(f"Error saving channel filters: {e}")
 
 async def relay_message(source_message, destination_channel):
-    unique_id = str(uuid.uuid4())  # Generate a unique message ID
-    relayed_message = await destination_channel.send(content=source_message.content)
+    """Relay a message to a destination channel and track it for future edits or deletions."""
+    try:
+        unique_id = str(uuid.uuid4())  # Generate a unique message ID
+        relayed_message = await destination_channel.send(content=source_message.content)
 
-    # Store the original and relayed message IDs
-    if unique_id not in relayed_messages:
-        relayed_messages[unique_id] = {
-            "original_message_id": source_message.id,
-            "relayed_message_ids": []
-        }
-    relayed_messages[unique_id]["relayed_message_ids"].append(relayed_message.id)
+        # Check if the relayed_messages entry already exists for the unique ID
+        if unique_id not in relayed_messages:
+            relayed_messages[unique_id] = {
+                "original_message_id": source_message.id,
+                "relayed_message_ids": [],
+            }
 
-    return unique_id
+        # Add the relayed message ID to the entry
+        relayed_messages[unique_id]["relayed_message_ids"].append(relayed_message.id)
+        logging.info(f"Message relayed from {source_message.id} to {relayed_message.id} in {destination_channel.name}.")
+        return unique_id
+    except Exception as e:
+        logging.error(f"Error relaying message: {e}")
+        return None
 
 # -------------------------------------------------------------------------
 # Event Handlers
@@ -231,7 +238,7 @@ async def on_message_edit(before, after):
             break
 
     if not found_uuid:
-        logging.info(f"Original message {before.id} not found in relayed_messages.")
+        logging.warning(f"Original message {before.id} not found in relayed_messages. Cannot propagate edits.")
         return
 
     # Propagate edits to relayed messages
@@ -245,7 +252,7 @@ async def on_message_edit(before, after):
                         await relayed_message.edit(content=after.content)
                         logging.info(f"Edited relayed message {relayed_id} in {channel.name}.")
                     except discord.NotFound:
-                        logging.info(f"Message {relayed_id} not found in channel {channel.name}.")
+                        logging.warning(f"Message {relayed_id} not found in channel {channel.name}. Skipping.")
                     except discord.Forbidden:
                         logging.error(f"Missing permissions to edit message {relayed_id} in {channel.name}.")
                     except Exception as e:
@@ -257,20 +264,20 @@ async def on_message_edit(before, after):
 
 @client.event
 async def on_message_delete(message):
-    """Handle deletion of an original message and propagate deletion to relayed messages."""
+    """Handle deletion of an original message and propagate deletions to relayed messages."""
     found_uuid = None
 
-    # Find the UUID associated with the deleted message
+    # Locate the UUID associated with the deleted message
     for unique_id, data in relayed_messages.items():
         if data["original_message_id"] == message.id:
             found_uuid = unique_id
             break
 
     if not found_uuid:
-        logging.info(f"Original message {message.id} not found in relayed_messages.")
+        logging.warning(f"Original message {message.id} not found in relayed_messages. Cannot propagate deletions.")
         return
 
-    # Propagate deletion to relayed messages
+    # Propagate deletions to relayed messages
     try:
         data = relayed_messages[found_uuid]
         for relayed_id in data["relayed_message_ids"]:
@@ -281,14 +288,15 @@ async def on_message_delete(message):
                         await relayed_message.delete()
                         logging.info(f"Deleted relayed message {relayed_id} in {channel.name}.")
                     except discord.NotFound:
-                        logging.info(f"Message {relayed_id} not found in channel {channel.name}.")
+                        logging.warning(f"Message {relayed_id} not found in channel {channel.name}. Skipping.")
                     except discord.Forbidden:
                         logging.error(f"Missing permissions to delete message {relayed_id} in {channel.name}.")
                     except Exception as e:
                         logging.error(f"Error deleting relayed message {relayed_id} in {channel.name}: {e}")
-        # Remove the UUID from relayed_messages
+
+        # Remove the UUID entry from relayed_messages
         del relayed_messages[found_uuid]
-        logging.info(f"Removed UUID {found_uuid} from relayed_messages.")
+        logging.info(f"Removed UUID {found_uuid} from relayed_messages after deletion.")
     except KeyError:
         logging.error(f"UUID {found_uuid} unexpectedly missing from relayed_messages.")
     except Exception as e:
