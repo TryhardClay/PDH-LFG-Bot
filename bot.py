@@ -139,7 +139,7 @@ async def on_message(message):
     # Ensure content is never None (set to an empty string if None)
     content = message.content if message.content is not None else ""
 
-    # Ensure embeds is correctly converted from message
+    # Ensure embeds are correctly converted from message
     embeds = [embed.to_dict() for embed in message.embeds]
 
     # If there are attachments, append the URLs to the content
@@ -159,7 +159,7 @@ async def on_message(message):
                         source_filter == 'none' or
                         destination_filter == 'none'):
                     try:
-                        # Log the webhook URL, content, and embeds being sent
+                        # Correct place to log webhook_data inside the loop
                         logging.debug(f"Sending webhook message to {webhook_data['url']} with content: {content} and embeds: {embeds}")
 
                         # Ensure the content is valid and embeds are processed properly
