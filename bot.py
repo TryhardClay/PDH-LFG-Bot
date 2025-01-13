@@ -58,8 +58,8 @@ CHANNEL_FILTERS = load_channel_filters()
 active_embeds = {
     "embed_id": {
         "players": ["Player1"],
-        "task": asyncio.Task,
-        "messages": {channel_id: discord.WebhookMessage, ...},
+        "task": None,  # This will be replaced with an asyncio.Task object
+        "messages": {},  # Initialize as an empty dictionary to be populated later
     }
 }
 
