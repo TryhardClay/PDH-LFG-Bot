@@ -78,7 +78,9 @@ message_relay_task = None
 
 # PROGRAMMING NOTES
 # The cross server messaging feature is ALWAYS handled via webhooks for ease of programming and code simplicity.
+# - See: "Webhook Functions" and "Message Relay Loop"
 # The BIGLFG embed functionality is ALWAYS handled via dynamic gateway processes to ensure preferred performance.
+# - See: "/biglfg Command" and "Dynamic Updates for Embeds"
 
 # -------------------------------------------------------------------------
 # Webhook Functions
@@ -362,74 +364,65 @@ async def biglfg(interaction: discord.Interaction):
         initiating_player = interaction.user.name
 
         # Create the embed
-        embed = discord.Embed(title="Looking for more players...", color=discord.Color.yellow())
+        embed = discord.Embed(
+            title="Looking for more players...",
+            color=discord.Color.yellow(),
+            description=f"**REACT BELOW (3 players needed)**"
+        )
+        embed.set_footer(text=f"Started by {initiating_player}")
         embed.add_field(name="Players:", value=f"1. {initiating_player}", inline=False)
-        embed.add_field(name="\u200b", value="**REACT BELOW (3 players needed)**", inline=False)
 
-        # Create the buttons
-        join_button = Button(label="JOIN", style=discord.ButtonStyle.success)
-        leave_button = Button(label="LEAVE", style=discord.ButtonStyle.danger)
+        # Create buttons and view
+        view = discord.ui.View(timeout=15 * 60)  # 15-minute timeout
+        join_button = discord.ui.Button(style=discord.ButtonStyle.success, label="JOIN")
+        leave_button = discord.ui.Button(style=discord.ButtonStyle.danger, label="LEAVE")
 
-        # Define button callbacks
+        # Add button callbacks
         async def join_button_callback(button_interaction: discord.Interaction):
             embed_id = button_interaction.message.id
+            if embed_id not in active_embeds:
+                logging.info(f"Embed ID {embed_id} not found in active_embeds.")
+                return
+
             if button_interaction.user.name not in active_embeds[embed_id]["players"]:
                 active_embeds[embed_id]["players"].append(button_interaction.user.name)
                 await update_embeds(embed_id)
-
-                if len(active_embeds[embed_id]["players"]) == 4:
-                    await lfg_complete(embed_id)
-
-            await button_interaction.response.defer()
+                await button_interaction.response.defer()
 
         async def leave_button_callback(button_interaction: discord.Interaction):
             embed_id = button_interaction.message.id
+            if embed_id not in active_embeds:
+                logging.info(f"Embed ID {embed_id} not found in active_embeds.")
+                return
+
             if button_interaction.user.name in active_embeds[embed_id]["players"]:
                 active_embeds[embed_id]["players"].remove(button_interaction.user.name)
                 await update_embeds(embed_id)
+                await button_interaction.response.defer()
 
-            await button_interaction.response.defer()
-
-        # Attach callbacks to buttons
         join_button.callback = join_button_callback
         leave_button.callback = leave_button_callback
 
-        # Add buttons to the view
-        view = View()
         view.add_item(join_button)
         view.add_item(leave_button)
 
+        # Send embed and buttons across servers
         sent_messages = {}
-
-        # Send the embed to all connected channels via gateway
-        for destination_channel_id in WEBHOOK_URLS.keys():
+        for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
             destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
 
             if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
-                guild_id, channel_id = map(int, destination_channel_id.split('_'))
-                guild = client.get_guild(guild_id)
-                channel = guild.get_channel(channel_id)
-
+                channel = client.get_channel(int(destination_channel_id.split('_')[1]))
                 if channel:
-                    try:
-                        # Send embed to the channel
-                        message = await channel.send(embed=embed, view=view)
-                        sent_messages[destination_channel_id] = message
-                    except Exception as e:
-                        logging.error(f"Error sending LFG request to {destination_channel_id}: {e}")
+                    message = await channel.send(embed=embed, view=view)
+                    sent_messages[destination_channel_id] = message
 
-        # Track the embed in memory
         if sent_messages:
             embed_id = list(sent_messages.values())[0].id
             active_embeds[embed_id] = {
                 "players": [initiating_player],
-                "channels": list(sent_messages.keys()),
                 "messages": sent_messages,
-                "task": asyncio.create_task(lfg_timeout(embed_id)),
             }
-
-            # Confirmation message
-            await interaction.followup.send("LFG request sent across channels.", ephemeral=True)
         else:
             await interaction.followup.send("Failed to send LFG request to any channels.", ephemeral=True)
 
@@ -459,29 +452,30 @@ def save_channel_filters():
 
 async def update_embeds(embed_id):
     """Update all related embeds with the current player list."""
+    if embed_id not in active_embeds:
+        logging.info(f"Embed ID {embed_id} not found for updating.")
+        return
+
     data = active_embeds[embed_id]
     players = data["players"]
     remaining_slots = 4 - len(players)
 
-    for channel_id, message in data["messages"].items():
+    for message in data["messages"].values():
         try:
-            if remaining_slots > 0:
-                embed = discord.Embed(
-                    title="Looking for more players...",
-                    color=discord.Color.yellow(),
-                )
-                embed.add_field(name="Players:", value="\n".join([f"{i + 1}. {name}" for i, name in enumerate(players)]), inline=False)
-                embed.add_field(name="\u200b", value=f"**REACT BELOW ({remaining_slots} players needed)**", inline=False)
-            else:
-                embed = discord.Embed(title="Your game is ready!", color=discord.Color.green())
-                embed.add_field(
-                    name="Players:",
-                    value="\n".join([f"{i + 1}. {name}" for i, name in enumerate(players)]),
-                    inline=False,
-                )
+            embed = discord.Embed(
+                title="Looking for more players...",
+                color=discord.Color.green() if remaining_slots == 0 else discord.Color.yellow(),
+                description=f"**REACT BELOW ({remaining_slots} players needed)**" if remaining_slots > 0 else "**Your game is ready!**"
+            )
+            embed.set_footer(text=f"Started by {players[0]}")
+            embed.add_field(
+                name="Players:",
+                value="\n".join([f"{i + 1}. {name}" for i, name in enumerate(players)]),
+                inline=False,
+            )
             await message.edit(embed=embed)
         except Exception as e:
-            logging.error(f"Error updating embed in channel {channel_id}: {e}")
+            logging.error(f"Error updating embed: {e}")
 
 async def lfg_complete(embed_id):
     """Mark the LFG request as complete."""
@@ -504,12 +498,12 @@ async def lfg_timeout(embed_id):
     await asyncio.sleep(15 * 60)  # Wait 15 minutes
     if embed_id in active_embeds:
         data = active_embeds.pop(embed_id)
-        for channel_id, message in data["messages"].items():
+        for message in data["messages"].values():
             try:
                 embed = discord.Embed(title="This request has timed out.", color=discord.Color.red())
-                await message.edit(embed=embed)
+                await message.edit(embed=embed, view=None)
             except Exception as e:
-                logging.error(f"Error updating embed on timeout in channel {channel_id}: {e}")
+                logging.error(f"Error updating embed on timeout: {e}")
 
 # -------------------------------------------------------------------------
 # Message Relay Loop
