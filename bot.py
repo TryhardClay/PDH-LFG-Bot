@@ -363,8 +363,8 @@ async def biglfg(interaction: discord.Interaction):
         embed.add_field(name="\u200b", value="**REACT BELOW (3 players needed)**", inline=False)
 
         # Create the buttons
-        join_button = Button(label="JOIN", style=discord.ButtonStyle.success)  # Green button
-        leave_button = Button(label="LEAVE", style=discord.ButtonStyle.danger)  # Red button
+        join_button = Button(label="JOIN", style=discord.ButtonStyle.success)
+        leave_button = Button(label="LEAVE", style=discord.ButtonStyle.danger)
 
         # Define button callbacks
         async def join_button_callback(button_interaction: discord.Interaction):
@@ -373,7 +373,6 @@ async def biglfg(interaction: discord.Interaction):
                 active_embeds[embed_id]["players"].append(button_interaction.user.name)
                 await update_embeds(embed_id)
 
-                # Check if the game is ready
                 if len(active_embeds[embed_id]["players"]) == 4:
                     await lfg_complete(embed_id)
 
@@ -398,15 +397,21 @@ async def biglfg(interaction: discord.Interaction):
 
         sent_messages = {}
 
-        # Filter destination channels by their assigned filter
+        # Send the embed to all connected channels
         for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
             destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
 
-            # Only send to channels with a matching filter or no filter
             if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
                 try:
-                    message = await interaction.channel.send(embed=embed, view=view)
-                    sent_messages[destination_channel_id] = message
+                    # Send embed via webhook to connected servers
+                    message = await send_webhook_message(
+                        webhook_data['url'],
+                        embeds=[embed.to_dict()],
+                        username=f"{interaction.user.name} from {interaction.guild.name}",
+                        avatar_url=interaction.user.avatar.url if interaction.user.avatar else None
+                    )
+                    if message:
+                        sent_messages[destination_channel_id] = message
                 except Exception as e:
                     logging.error(f"Error sending LFG request to {destination_channel_id}: {e}")
 
@@ -427,6 +432,7 @@ async def biglfg(interaction: discord.Interaction):
 
     except Exception as e:
         logging.error(f"Error in /biglfg command: {e}")
+
 # -------------------------------------------------------------------------
 # Helper Functions
 # -------------------------------------------------------------------------
