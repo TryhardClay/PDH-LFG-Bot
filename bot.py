@@ -363,25 +363,23 @@ async def biglfg(interaction: discord.Interaction):
         sent_messages = {}
 
         # Filter destination channels by their assigned filter
-        for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
+        for destination_channel_id in WEBHOOK_URLS.keys():
             destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
 
             # Only send to channels with a matching filter or no filter
             if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
-                try:
-                    message = await send_webhook_message(
-                        webhook_data['url'],
-                        embeds=[embed.to_dict()],
-                        username=f"{interaction.user.name} from {interaction.guild.name}",
-                        avatar_url=interaction.user.avatar.url if interaction.user.avatar else None
-                    )
-                    if message:
-                        # Track the sent message in `active_embeds`
+                guild_id, channel_id = map(int, destination_channel_id.split('_'))
+                guild = client.get_guild(guild_id)
+                channel = guild.get_channel(channel_id)
+
+                if channel and channel.permissions_for(guild.me).send_messages:
+                    try:
+                        message = await channel.send(embed=embed)
                         sent_messages[destination_channel_id] = message
-                    else:
-                        logging.warning(f"Failed to send LFG request to {destination_channel_id}")
-                except Exception as e:
-                    logging.error(f"Error sending LFG request to {destination_channel_id}: {e}")
+                        await message.add_reaction("👍")
+                        await message.add_reaction("👎")
+                    except Exception as e:
+                        logging.error(f"Error sending LFG request to {destination_channel_id}: {e}")
 
         # Check if at least one message was successfully sent
         if sent_messages:
