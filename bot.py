@@ -197,25 +197,24 @@ async def on_reaction_add(reaction, user):
     if user.bot:
         return  # Ignore bot reactions
 
-    # Iterate through all active embeds to find the matching one
+    # Check if the reaction is for an active embed
     for embed_id, data in active_embeds.items():
-        # Check if the reaction message matches one of the tracked messages
-        if reaction.message.id in [msg.id for msg in data["messages"].values()]:
+        if reaction.message.id == embed_id:  # Match the message ID
+            # Handle thumbs up (👍)
             if str(reaction.emoji) == "👍":
-                # Add the user to the player list if not already in it
                 if user.name not in data["players"]:
-                    data["players"].append(user.name)
-                    await update_embeds(embed_id)  # Update all embeds for this LFG request
+                    data["players"].append(user.name)  # Add the user to the player list
+                    await update_embeds(embed_id)  # Update the embed
 
-                    # Check if the maximum player limit is reached
+                    # If the player limit is reached, complete the LFG request
                     if len(data["players"]) == 4:
                         await lfg_complete(embed_id)
 
+            # Handle thumbs down (👎)
             elif str(reaction.emoji) == "👎":
-                # Remove the user from the player list if present
                 if user.name in data["players"]:
-                    data["players"].remove(user.name)
-                    await update_embeds(embed_id)  # Update all embeds for this LFG request
+                    data["players"].remove(user.name)  # Remove the user from the player list
+                    await update_embeds(embed_id)  # Update the embed
 
             break  # Stop checking other embeds once a match is found
 
@@ -366,7 +365,7 @@ async def biglfg(interaction: discord.Interaction):
                     logging.error(f"Error sending LFG request to {destination_channel_id}: {e}")
 
         if sent_messages:
-            embed_id = list(sent_messages.values())[0].id
+            embed_id = list(sent_messages.values())[0].id  # Use the first successful message ID as the key
             active_embeds[embed_id] = {
                 "players": [initiating_player],
                 "channels": list(sent_messages.keys()),
@@ -408,10 +407,8 @@ async def update_embeds(embed_id):
     data = active_embeds[embed_id]
     players = data["players"]
 
-    # Iterate through all messages for this embed ID
     for channel_id, message in data["messages"].items():
         try:
-            # Create an updated embed with the current player list
             if len(players) < 4:
                 embed = discord.Embed(
                     title="Looking for more players...",
@@ -421,14 +418,11 @@ async def update_embeds(embed_id):
             else:
                 embed = discord.Embed(title="Your game is ready!", color=discord.Color.green())
 
-            # Add the player list to the embed
             embed.add_field(
                 name="Players:",
                 value="\n".join([f"{i + 1}. {name}" for i, name in enumerate(players)]),
                 inline=False,
             )
-
-            # Update the embed in the current channel
             await message.edit(embed=embed)
         except Exception as e:
             logging.error(f"Error updating embed in channel {channel_id}: {e}")
