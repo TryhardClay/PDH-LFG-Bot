@@ -355,75 +355,96 @@ async def biglfg(interaction: discord.Interaction):
 
         source_channel_id = f'{interaction.guild.id}_{interaction.channel.id}'
         source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
-        initiating_player = interaction.user.name
+        initiating_player = interaction.user
 
-        # Create the embed
         embed = discord.Embed(
             title="Looking for more players...",
             color=discord.Color.yellow(),
-            description=f"**REACT BELOW (3 players needed)**"
+            description="REACT BELOW (3 players needed)",
         )
-        embed.set_footer(text=f"Started by {initiating_player}")
-        embed.add_field(name="Players:", value=f"1. {initiating_player}", inline=False)
+        embed.add_field(name="Players:", value=f"1. {initiating_player.name}", inline=False)
 
-        # Create buttons and shared view
-        view = discord.ui.View(timeout=15 * 60)  # 15-minute timeout
-        join_button = discord.ui.Button(style=discord.ButtonStyle.success, label="JOIN")
-        leave_button = discord.ui.Button(style=discord.ButtonStyle.danger, label="LEAVE")
+        view = discord.ui.View(timeout=15 * 60)  # 15-minute timeout for the View
 
-        # Button callbacks
+        # Add JOIN button
+        join_button = discord.ui.Button(label="JOIN", style=discord.ButtonStyle.success)
         async def join_button_callback(button_interaction: discord.Interaction):
             embed_id = button_interaction.message.id
-            if embed_id not in active_embeds:
-                await button_interaction.response.send_message("This interaction failed.", ephemeral=True)
-                return
+            if embed_id in active_embeds:
+                data = active_embeds[embed_id]
+                players = data["players"]
+                user_id = button_interaction.user.id
 
-            if button_interaction.user.name not in active_embeds[embed_id]["players"]:
-                active_embeds[embed_id]["players"].append(button_interaction.user.name)
-                await update_embeds(embed_id)
-                await button_interaction.response.defer()
-
-        async def leave_button_callback(button_interaction: discord.Interaction):
-            embed_id = button_interaction.message.id
-            if embed_id not in active_embeds:
-                await button_interaction.response.send_message("This interaction failed.", ephemeral=True)
-                return
-
-            if button_interaction.user.name in active_embeds[embed_id]["players"]:
-                active_embeds[embed_id]["players"].remove(button_interaction.user.name)
-                await update_embeds(embed_id)
-                await button_interaction.response.defer()
+                if user_id not in players:
+                    players[user_id] = button_interaction.user.name
+                    logging.info(f"Added {button_interaction.user.name} to the player list for embed {embed_id}.")
+                    await update_embeds(embed_id)
+                    await button_interaction.response.send_message("You've joined the game!", ephemeral=True)
+                else:
+                    await button_interaction.response.send_message("You're already in the player list.", ephemeral=True)
+            else:
+                await button_interaction.response.send_message("This game is no longer active.", ephemeral=True)
 
         join_button.callback = join_button_callback
-        leave_button.callback = leave_button_callback
-
         view.add_item(join_button)
+
+        # Add LEAVE button
+        leave_button = discord.ui.Button(label="LEAVE", style=discord.ButtonStyle.danger)
+        async def leave_button_callback(button_interaction: discord.Interaction):
+            embed_id = button_interaction.message.id
+            if embed_id in active_embeds:
+                data = active_embeds[embed_id]
+                players = data["players"]
+                user_id = button_interaction.user.id
+
+                if user_id in players:
+                    del players[user_id]
+                    logging.info(f"Removed {button_interaction.user.name} from the player list for embed {embed_id}.")
+                    await update_embeds(embed_id)
+                    await button_interaction.response.send_message("You've left the game.", ephemeral=True)
+                else:
+                    await button_interaction.response.send_message("You are not in the player list.", ephemeral=True)
+            else:
+                await button_interaction.response.send_message("This game is no longer active.", ephemeral=True)
+
+        leave_button.callback = leave_button_callback
         view.add_item(leave_button)
 
-        # Send embed and buttons across servers
         sent_messages = {}
+
+        # Filter destination channels by their assigned filter
         for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
             destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
 
+            # Only send to channels with a matching filter or no filter
             if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
-                channel = client.get_channel(int(destination_channel_id.split('_')[1]))
-                if channel:
-                    message = await channel.send(embed=embed, view=view)
+                try:
+                    webhook = discord.Webhook.from_url(webhook_data['url'], session=client.http._HTTPClient__session)
+                    message = await webhook.send(embed=embed, view=view, wait=True)
                     sent_messages[destination_channel_id] = message
+                except Exception as e:
+                    logging.error(f"Error sending LFG request to {destination_channel_id}: {e}")
 
+        # Check if at least one message was successfully sent
         if sent_messages:
-            embed_id = list(sent_messages.values())[0].id
+            embed_id = list(sent_messages.values())[0].id  # Use the first successful message ID as the key
             active_embeds[embed_id] = {
-                "players": [initiating_player],
+                "players": {initiating_player.id: initiating_player.name},  # Store user ID and display name
                 "messages": sent_messages,
-                "view": view  # Store the view for reuse
+                "task": asyncio.create_task(lfg_timeout(embed_id)),
             }
+
+            # Confirmation message
             await interaction.followup.send("LFG request sent across channels.", ephemeral=True)
         else:
             await interaction.followup.send("Failed to send LFG request to any channels.", ephemeral=True)
 
     except Exception as e:
         logging.error(f"Error in /biglfg command: {e}")
+        try:
+            await interaction.followup.send("An error occurred while processing the LFG request.", ephemeral=True)
+        except discord.HTTPException as e:
+            logging.error(f"Error sending error message: {e}")
 
 # -------------------------------------------------------------------------
 # Helper Functions
@@ -447,12 +468,11 @@ def save_channel_filters():
         logging.error(f"Error saving channel filters to {CHANNEL_FILTERS_PATH}: {e}")
 
 async def update_embeds(embed_id):
-    """Update all related embeds with the current player list."""
     data = active_embeds[embed_id]
-    players = data["players"]  # Ensure this is a dictionary: {user_id: display_name}
+    players = data["players"]  # Should always be a dictionary
 
     # Prepare the player list display or default to "Empty"
-    if not players:  # If dictionary is empty
+    if not players:
         player_list = "Empty"
     else:
         player_list = "\n".join([f"{i + 1}. {name}" for i, name in enumerate(players.values())])
@@ -470,15 +490,14 @@ async def update_embeds(embed_id):
             logging.error(f"Error updating embed in channel {channel_id}: {e}")
 
 async def join_button_callback(button_interaction: discord.Interaction):
-    """Handle the JOIN button interaction."""
     embed_id = button_interaction.message.id
     if embed_id in active_embeds:
         data = active_embeds[embed_id]
+        players = data["players"]  # Should always be a dictionary
         user_id = button_interaction.user.id
 
-        if user_id not in data["players"]:
-            # Add the user
-            data["players"][user_id] = button_interaction.user.name
+        if user_id not in players:
+            players[user_id] = button_interaction.user.name
             logging.info(f"Added {button_interaction.user.name} to the player list for embed {embed_id}.")
             await update_embeds(embed_id)
             await button_interaction.response.send_message("You've joined the game!", ephemeral=True)
@@ -489,15 +508,14 @@ async def join_button_callback(button_interaction: discord.Interaction):
 
 
 async def leave_button_callback(button_interaction: discord.Interaction):
-    """Handle the LEAVE button interaction."""
     embed_id = button_interaction.message.id
     if embed_id in active_embeds:
         data = active_embeds[embed_id]
+        players = data["players"]  # Should always be a dictionary
         user_id = button_interaction.user.id
 
-        if user_id in data["players"]:
-            # Remove the user
-            del data["players"][user_id]
+        if user_id in players:
+            del players[user_id]
             logging.info(f"Removed {button_interaction.user.name} from the player list for embed {embed_id}.")
             await update_embeds(embed_id)
             await button_interaction.response.send_message("You've left the game.", ephemeral=True)
