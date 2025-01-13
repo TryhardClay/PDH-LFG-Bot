@@ -58,9 +58,8 @@ WEBHOOK_URLS = load_webhook_data()
 CHANNEL_FILTERS = load_channel_filters()
 active_embeds = {
     embed_id: {
-        "players": {user_id: display_name, ...},  # Store user ID as key, display name as value
-        "messages": {channel_id: discord.Message, ...},
-        ...
+        "players": {},  # Empty dictionary for user_id and display_name pairs
+        "messages": {},  # Empty dictionary for channel_id and message objects
     }
 }
 
