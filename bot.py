@@ -76,6 +76,10 @@ client = commands.Bot(command_prefix='/', intents=intents)
 # Global variable to keep track of the main message handling task
 message_relay_task = None
 
+# PROGRAMMING NOTES
+# The cross server messaging feature is ALWAYS handled via webhooks for ease of programming and code simplicity.
+# The BIGLFG embed functionality is ALWAYS handled via dynamic gateway processes to ensure preferred performance.
+
 # -------------------------------------------------------------------------
 # Webhook Functions
 # -------------------------------------------------------------------------
@@ -368,7 +372,7 @@ async def biglfg(interaction: discord.Interaction):
 
         # Define button callbacks
         async def join_button_callback(button_interaction: discord.Interaction):
-            embed_id = interaction.message.id
+            embed_id = button_interaction.message.id
             if button_interaction.user.name not in active_embeds[embed_id]["players"]:
                 active_embeds[embed_id]["players"].append(button_interaction.user.name)
                 await update_embeds(embed_id)
@@ -379,7 +383,7 @@ async def biglfg(interaction: discord.Interaction):
             await button_interaction.response.defer()
 
         async def leave_button_callback(button_interaction: discord.Interaction):
-            embed_id = interaction.message.id
+            embed_id = button_interaction.message.id
             if button_interaction.user.name in active_embeds[embed_id]["players"]:
                 active_embeds[embed_id]["players"].remove(button_interaction.user.name)
                 await update_embeds(embed_id)
@@ -397,23 +401,22 @@ async def biglfg(interaction: discord.Interaction):
 
         sent_messages = {}
 
-        # Send the embed to all connected channels
-        for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
+        # Send the embed to all connected channels via gateway
+        for destination_channel_id in WEBHOOK_URLS.keys():
             destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
 
             if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
-                try:
-                    # Send embed via webhook to connected servers
-                    message = await send_webhook_message(
-                        webhook_data['url'],
-                        embeds=[embed.to_dict()],
-                        username=f"{interaction.user.name} from {interaction.guild.name}",
-                        avatar_url=interaction.user.avatar.url if interaction.user.avatar else None
-                    )
-                    if message:
+                guild_id, channel_id = map(int, destination_channel_id.split('_'))
+                guild = client.get_guild(guild_id)
+                channel = guild.get_channel(channel_id)
+
+                if channel:
+                    try:
+                        # Send embed to the channel
+                        message = await channel.send(embed=embed, view=view)
                         sent_messages[destination_channel_id] = message
-                except Exception as e:
-                    logging.error(f"Error sending LFG request to {destination_channel_id}: {e}")
+                    except Exception as e:
+                        logging.error(f"Error sending LFG request to {destination_channel_id}: {e}")
 
         # Track the embed in memory
         if sent_messages:
