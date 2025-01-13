@@ -119,28 +119,33 @@ def save_channel_filters():
 async def on_ready():
     logging.info(f'Logged in as {client.user}')
     await client.tree.sync()
-
     global message_relay_task
     if message_relay_task is None or message_relay_task.done():
         message_relay_task = asyncio.create_task(message_relay_loop())
 
 @client.event
 async def on_guild_join(guild):
+    # Send the welcome message to a suitable channel
     for channel in guild.text_channels:
         if channel.permissions_for(guild.me).send_messages:
             try:
                 await channel.send("Hello! I'm your cross-server communication bot. \n"
-                                   "An admin needs to use the `/setchannel` command to \n"
-                                   "choose a channel for relaying messages.")
-                break
+                                  "An admin needs to use the `/setchannel` command to \n"
+                                  "choose a channel for relaying messages. \n"
+                                  "Be sure to select an appropriate filter; either 'cpdh' or 'casual'.")
+                break  # Stop after sending the message once
             except discord.Forbidden:
-                pass
+                pass  # Continue to the next channel if sending fails
 
+    # Manage the role when joining a server
     await manage_role(guild)
 
 @client.event
 async def on_message(message):
-    if message.author == client.user or message.webhook_id:
+    if message.author == client.user:
+        return
+
+    if message.webhook_id and message.author.id != client.user.id:
         return
 
     content = message.content
@@ -149,22 +154,67 @@ async def on_message(message):
         content += "\n" + "\n".join([attachment.url for attachment in message.attachments])
 
     source_channel_id = f'{message.guild.id}_{message.channel.id}'
+
     if source_channel_id in WEBHOOK_URLS:
         source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
+
         for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
             if source_channel_id != destination_channel_id:
                 destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
-                if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
+
+                if (source_filter == destination_filter or
+                        source_filter == 'none' or
+                        destination_filter == 'none'):
                     try:
-                        await send_webhook_message(
+                        message = await send_webhook_message(
                             webhook_data['url'],
                             content=content,
                             embeds=embeds,
                             username=f"{message.author.name} from {message.guild.name}",
                             avatar_url=message.author.avatar.url if message.author.avatar else None
                         )
+                        
+                        # This is the fix for the 'NoneType' object error
+                        if message is not None:     
+                            for reaction in message.reactions:
+                                try:
+                                    await reaction.message.add_reaction(reaction.emoji)
+                                except discord.HTTPException as e:
+                                    logging.error(f"Error adding reaction: {e}")
+
                     except Exception as e:
-                        logging.error(f"Error relaying message to {destination_channel_id}: {e}")
+                        logging.error(f"Error relaying message: {e}")
+
+@client.event
+async def on_reaction_add(reaction, user):
+    """Handle player reactions to active LFG embeds."""
+    if user.bot:
+        return  # Ignore bot reactions
+
+    for embed_id, data in active_embeds.items():
+        # Check if the reaction is on a tracked message
+        if reaction.message.id in [msg.id for msg in data["messages"].values()]:
+            if str(reaction.emoji) == "👍":
+                # Add the user to the player list if not already in it
+                if user.name not in data["players"]:
+                    data["players"].append(user.name)
+                    await update_embeds(embed_id)
+
+                    # If the player limit is reached, complete the LFG request
+                    if len(data["players"]) == 4:
+                        await lfg_complete(embed_id)
+
+            elif str(reaction.emoji) == "👎":
+                # Remove the user from the player list if present
+                if user.name in data["players"]:
+                    data["players"].remove(user.name)
+                    await update_embeds(embed_id)
+
+            break  # Stop checking other embeds once a match is found
+
+@client.event
+async def on_guild_remove(guild):
+    pass  # Role management is handled elsewhere
 
 # -------------------------------------------------------------------------
 # Role Management
@@ -346,7 +396,6 @@ def save_channel_filters():
     except Exception as e:
         logging.error(f"Error saving channel filters to {CHANNEL_FILTERS_PATH}: {e}")
 
-
 async def update_embeds(embed_id):
     """Update all related embeds with the current player list."""
     data = active_embeds[embed_id]
@@ -371,7 +420,6 @@ async def update_embeds(embed_id):
             await message.edit(embed=embed)
         except Exception as e:
             logging.error(f"Error updating embed in channel {channel_id}: {e}")
-
 
 async def lfg_complete(embed_id):
     """Mark the LFG request as complete."""
