@@ -8,6 +8,7 @@ import uuid
 from discord.ext import commands, tasks
 from discord.ext.commands import has_permissions
 from discord.ui import Button, View
+from cachetools import TTLCache
 
 # -------------------------------------------------------------------------
 # Setup and Configuration
@@ -15,6 +16,9 @@ from discord.ui import Button, View
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Create a dictionary with a 24-hour expiration (in seconds)
+relayed_messages = TTLCache(maxsize=10000, ttl=24 * 60 * 60)  # Max size and TTL
 
 # Access the token from the environment variable
 TOKEN = os.environ.get('TOKEN')
@@ -125,6 +129,17 @@ def save_channel_filters():
     except Exception as e:
         logging.error(f"Error saving channel filters: {e}")
 
+async def relay_message(source_message, destination_channel):
+    unique_id = str(uuid.uuid4())  # Generate a unique message ID
+    relayed_message = await destination_channel.send(content=source_message.content)
+
+    # Store the message ID and its corresponding Discord message objects
+    relayed_messages[unique_id] = {
+        "original_message": source_message,
+        "relayed_message": relayed_message
+    }
+    return unique_id
+
 # -------------------------------------------------------------------------
 # Event Handlers
 # -------------------------------------------------------------------------
@@ -198,6 +213,23 @@ async def on_message(message):
 
                     except Exception as e:
                         logging.error(f"Error relaying message: {e}")
+
+@client.event
+async def on_message_edit(before, after):
+    # Check if the message ID is still in the cache
+    for unique_id, data in relayed_messages.items():
+        if data["original_message"].id == before.id:
+            # Edit the distributed message
+            await data["relayed_message"].edit(content=after.content)
+
+@client.event
+async def on_message_delete(message):
+    # Check if the message ID is still in the cache
+    for unique_id, data in relayed_messages.items():
+        if data["original_message"].id == message.id:
+            # Delete the distributed message
+            await data["relayed_message"].delete()
+            del relayed_messages[unique_id]  # Remove the entry manually
 
 @client.event
 async def on_reaction_add(reaction, user):
