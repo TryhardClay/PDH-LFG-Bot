@@ -100,6 +100,17 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
             logging.error(f"Unexpected error: {e}")
 
     return None
+# -------------------------------------------------------------------------
+# Message Relay Loop
+# -------------------------------------------------------------------------
+
+async def message_relay_loop():
+    while True:
+        try:
+            await asyncio.sleep(1)  # Check for new messages every second
+            # Add logic here for message relaying if needed
+        except Exception as e:
+            logging.error(f"Error in message relay loop: {e}")
 
 # -------------------------------------------------------------------------
 # Event Handlers
