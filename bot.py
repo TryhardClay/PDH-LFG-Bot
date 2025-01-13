@@ -449,10 +449,10 @@ def save_channel_filters():
 async def update_embeds(embed_id):
     """Update all related embeds with the current player list."""
     data = active_embeds[embed_id]
-    players = data["players"]
+    players = data["players"]  # Ensure this is a dictionary: {user_id: display_name}
 
     # Prepare the player list display or default to "Empty"
-    if not players:
+    if not players:  # If dictionary is empty
         player_list = "Empty"
     else:
         player_list = "\n".join([f"{i + 1}. {name}" for i, name in enumerate(players.values())])
@@ -486,6 +486,7 @@ async def join_button_callback(button_interaction: discord.Interaction):
             await button_interaction.response.send_message("You're already in the player list.", ephemeral=True)
     else:
         await button_interaction.response.send_message("This game is no longer active.", ephemeral=True)
+
 
 async def leave_button_callback(button_interaction: discord.Interaction):
     """Handle the LEAVE button interaction."""
