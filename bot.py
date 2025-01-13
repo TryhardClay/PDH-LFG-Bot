@@ -372,16 +372,16 @@ async def biglfg(interaction: discord.Interaction):
         embed.set_footer(text=f"Started by {initiating_player}")
         embed.add_field(name="Players:", value=f"1. {initiating_player}", inline=False)
 
-        # Create buttons and view
+        # Create buttons and shared view
         view = discord.ui.View(timeout=15 * 60)  # 15-minute timeout
         join_button = discord.ui.Button(style=discord.ButtonStyle.success, label="JOIN")
         leave_button = discord.ui.Button(style=discord.ButtonStyle.danger, label="LEAVE")
 
-        # Add button callbacks
+        # Button callbacks
         async def join_button_callback(button_interaction: discord.Interaction):
             embed_id = button_interaction.message.id
             if embed_id not in active_embeds:
-                logging.info(f"Embed ID {embed_id} not found in active_embeds.")
+                await button_interaction.response.send_message("This interaction failed.", ephemeral=True)
                 return
 
             if button_interaction.user.name not in active_embeds[embed_id]["players"]:
@@ -392,7 +392,7 @@ async def biglfg(interaction: discord.Interaction):
         async def leave_button_callback(button_interaction: discord.Interaction):
             embed_id = button_interaction.message.id
             if embed_id not in active_embeds:
-                logging.info(f"Embed ID {embed_id} not found in active_embeds.")
+                await button_interaction.response.send_message("This interaction failed.", ephemeral=True)
                 return
 
             if button_interaction.user.name in active_embeds[embed_id]["players"]:
@@ -422,7 +422,9 @@ async def biglfg(interaction: discord.Interaction):
             active_embeds[embed_id] = {
                 "players": [initiating_player],
                 "messages": sent_messages,
+                "view": view  # Store the view for reuse
             }
+            await interaction.followup.send("LFG request sent across channels.", ephemeral=True)
         else:
             await interaction.followup.send("Failed to send LFG request to any channels.", ephemeral=True)
 
@@ -473,7 +475,7 @@ async def update_embeds(embed_id):
                 value="\n".join([f"{i + 1}. {name}" for i, name in enumerate(players)]),
                 inline=False,
             )
-            await message.edit(embed=embed)
+            await message.edit(embed=embed, view=data["view"])  # Reattach the view to the message
         except Exception as e:
             logging.error(f"Error updating embed: {e}")
 
