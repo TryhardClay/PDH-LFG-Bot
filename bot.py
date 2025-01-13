@@ -151,6 +151,7 @@ async def on_message(message):
     if source_channel_id in WEBHOOK_URLS:
         source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
 
+        # Ensure that the loop iterates over the correct webhook_data
         for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
             if source_channel_id != destination_channel_id:
                 destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
@@ -159,10 +160,10 @@ async def on_message(message):
                         source_filter == 'none' or
                         destination_filter == 'none'):
                     try:
-                        # Correct place to log webhook_data inside the loop
+                        # Log inside the loop where webhook_data is defined
                         logging.debug(f"Sending webhook message to {webhook_data['url']} with content: {content} and embeds: {embeds}")
 
-                        # Ensure the content is valid and embeds are processed properly
+                        # Send the webhook message
                         message = await send_webhook_message(
                             webhook_data['url'],
                             content=content,
