@@ -78,27 +78,22 @@ message_relay_task = None
 
 async def send_webhook_message(webhook_url, content=None, embeds=None, username=None, avatar_url=None):
     """Send a message via a webhook and return the WebhookMessage object."""
-    async with aiohttp.ClientSession() as session:
-        data = {}
-        if content:
-            data["content"] = content
-        if embeds:
-            data["embeds"] = embeds
-        if username:
-            data["username"] = username
-        if avatar_url:
-            data["avatar_url"] = avatar_url
-
-        try:
-            async with session.post(webhook_url, json=data) as response:
-                if response.status == 200 or response.status == 204:  # Success
-                    logging.info(f"Message successfully sent to {webhook_url}")
-                    return {"id": response.headers.get("x-message-id"), "webhook_url": webhook_url}
-                else:
-                    logging.error(f"Failed to send message. Status code: {response.status}")
-                    logging.error(await response.text())
-        except Exception as e:
-            logging.error(f"An unexpected error occurred: {e}")
+    try:
+        webhook = discord.Webhook.from_url(webhook_url, session=aiohttp.ClientSession())
+        embed_objects = [discord.Embed.from_dict(embed) for embed in embeds] if embeds else None
+        message = await webhook.send(
+            content=content or "",
+            embeds=embed_objects,
+            username=username or "Bot",
+            avatar_url=avatar_url,
+            wait=True  # Wait for the message to be sent and return it
+        )
+        return message  # Return the WebhookMessage object
+    except discord.NotFound:
+        logging.error(f"Webhook not found: {webhook_url}")
+        return None
+    except Exception as e:
+        logging.error(f"An unexpected error occurred while sending webhook message: {e}")
         return None
 
 # -------------------------------------------------------------------------
@@ -224,13 +219,15 @@ async def manage_role(guild):
 @has_permissions(manage_channels=True)
 async def setchannel(interaction: discord.Interaction, channel: discord.TextChannel, filter: str):
     try:
+        # Acknowledge the interaction to avoid timeout
+        await interaction.response.defer(ephemeral=True)
+
         # Convert filter to lowercase for consistency
         filter = filter.lower()
 
         # Check if the filter is valid
         if filter not in ("casual", "cpdh"):
-            await interaction.response.send_message("Invalid filter. Please specify either 'casual' or 'cpdh'.",
-                                                    ephemeral=True)
+            await interaction.followup.send("Invalid filter. Please specify either 'casual' or 'cpdh'.", ephemeral=True)
             return
 
         webhook = await channel.create_webhook(name="Cross-Server Bot Webhook")
@@ -244,11 +241,13 @@ async def setchannel(interaction: discord.Interaction, channel: discord.TextChan
         save_webhook_data()
         save_channel_filters()
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"Cross-server communication channel set to {channel.mention} with filter '{filter}'.", ephemeral=True)
     except discord.Forbidden:
-        await interaction.response.send_message("I don't have permission to create webhooks in that channel.",
-                                                ephemeral=True)
+        await interaction.followup.send("I don't have permission to create webhooks in that channel.", ephemeral=True)
+    except Exception as e:
+        logging.error(f"Error in /setchannel command: {e}")
+        await interaction.followup.send("An error occurred while setting the channel.", ephemeral=True)
 
 @client.tree.command(name="disconnect", description="Disconnect a channel from cross-server communication.")
 @has_permissions(manage_channels=True)
