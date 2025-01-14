@@ -75,6 +75,9 @@ client = commands.Bot(command_prefix='/', intents=intents)
 # Global variable to keep track of the main message handling task
 message_relay_task = None
 
+# Dictionary to store relayed messages with a unique ID
+relayed_messages = {}
+
 # PROGRAMMING NOTES
 # The cross server messaging feature is ALWAYS handled via webhooks for ease of programming and code simplicity.
 # - See: "Webhook Functions" and "Message Relay Loop"
@@ -132,23 +135,21 @@ def save_channel_filters():
         logging.error(f"Error saving channel filters: {e}")
 
 async def relay_message(source_message, destination_channel):
-    unique_id = str(uuid.uuid4())  # Generate a unique message ID
-    relayed_message = await destination_channel.send(content=source_message.content)
+    """Relay a message to the destination channel and store its metadata."""
+    try:
+        unique_id = str(uuid.uuid4())  # Generate a unique message ID
+        relayed_message = await destination_channel.send(content=source_message.content)
 
-    # Ensure the unique_id exists in the relayed_messages dictionary
-    if unique_id not in relayed_messages:
+        # Store the message ID and its corresponding Discord message objects
         relayed_messages[unique_id] = {
-            "original_message": source_message,
-            "relayed_messages": {}
+            "original_message": source_message,  # Original message object
+            "relayed_message": relayed_message  # Relayed message object
         }
-
-    # Add the relayed message to the appropriate key
-    relayed_messages[unique_id]["relayed_messages"][destination_channel.id] = relayed_message
-
-    # Debugging: Log the current state of relayed_messages
-    logging.debug(f"Stored relayed message: {unique_id} -> {relayed_messages[unique_id]}")
-
-    return unique_id
+        logging.info(f"Message relayed. Unique ID: {unique_id}")
+        return unique_id
+    except Exception as e:
+        logging.error(f"Error in relay_message: {e}")
+        return None
 
 # -------------------------------------------------------------------------
 # Event Handlers
