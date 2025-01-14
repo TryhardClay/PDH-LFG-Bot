@@ -20,6 +20,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Create a dictionary with a 24-hour expiration (in seconds)
 relayed_messages = TTLCache(maxsize=10000, ttl=24 * 60 * 60)  # Max size and TTL
 
+# BigLFG Embed Tracking
+active_embeds = {}  # Independently managed
+
 # Access the token from the environment variable
 TOKEN = os.environ.get('TOKEN')
 
@@ -134,28 +137,44 @@ def save_channel_filters():
     except Exception as e:
         logging.error(f"Error saving channel filters: {e}")
 
-async def relay_message(source_message, destination_channel):
+# Text Message Relay
+async def relay_text_message(source_message, destination_channel):
     """
-    Relay a message to a destination channel using the Gateway API.
-    The propagated message explicitly attributes the original author and server.
+    Relay a text message across servers using the Gateway API.
+    Includes attribution to the original author and origin server.
     """
     try:
-        # Format the relayed message content with forced attribution
+        # Format message attribution
         formatted_content = f"{source_message.author.name} from {source_message.guild.name}:\n{source_message.content}"
         
-        # Send the message to the destination channel via the Gateway
+        # Send message to destination channel
         relayed_message = await destination_channel.send(content=formatted_content)
         
-        # Store message details for tracking edits/deletions
+        # Track the message for updates
         unique_id = str(uuid.uuid4())
-        relayed_messages[unique_id] = {
+        relayed_text_messages[unique_id] = {
             "original_message": source_message,
             "relayed_message": relayed_message,
         }
-        logging.info(f"Message relayed to channel {destination_channel.id} with unique_id: {unique_id}")
+        logging.info(f"Relayed text message to {destination_channel.id} with unique_id: {unique_id}")
         return unique_id
     except Exception as e:
-        logging.error(f"Error relaying message to channel {destination_channel.id}: {e}")
+        logging.error(f"Error relaying text message to channel {destination_channel.id}: {e}")
+        return None
+
+
+# BigLFG Embed Relay
+async def relay_lfg_embed(embed, source_filter, initiating_player, destination_channel):
+    """
+    Relay a BigLFG embed to other connected servers using the Gateway API.
+    Manages the embed view and player interactions independently.
+    """
+    try:
+        sent_message = await destination_channel.send(embed=embed, view=create_lfg_view())
+        logging.info(f"Relayed BigLFG embed to {destination_channel.id}")
+        return sent_message
+    except Exception as e:
+        logging.error(f"Error relaying BigLFG embed to channel {destination_channel.id}: {e}")
         return None
 
 # -------------------------------------------------------------------------
@@ -181,25 +200,21 @@ async def on_ready():
 @client.event
 async def on_message(message):
     """
-    Handle new messages and propagate them to linked channels in other servers.
+    Handle new text messages and propagate them across connected channels.
     """
     if message.author == client.user or message.webhook_id:
-        return  # Ignore bot messages and webhook-triggered messages
+        return  # Ignore bot messages and webhooks
     
     source_channel_id = f'{message.guild.id}_{message.channel.id}'
-    
-    if source_channel_id in WEBHOOK_URLS:  # Use WEBHOOK_URLS as a channel-link registry only
+    if source_channel_id in WEBHOOK_URLS:
         source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
-        
-        for destination_channel_id in WEBHOOK_URLS:
+        for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
             if source_channel_id != destination_channel_id:
                 destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
-                
-                # Match filters and relay messages via Gateway
                 if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
                     destination_channel = client.get_channel(int(destination_channel_id.split('_')[1]))
                     if destination_channel:
-                        await relay_message(message, destination_channel)
+                        await relay_text_message(message, destination_channel)
 
 @client.event
 async def on_message_edit(before, after):
@@ -375,98 +390,46 @@ async def about(interaction: discord.Interaction):
 
 @client.tree.command(name="biglfg", description="Create a cross-server LFG request.")
 async def biglfg(interaction: discord.Interaction):
+    """
+    Handles the creation and propagation of BigLFG embeds.
+    """
     try:
         await interaction.response.defer()
 
-        # Generate a unique UUID for this LFG instance
         lfg_uuid = str(uuid.uuid4())
-
         source_channel_id = f'{interaction.guild.id}_{interaction.channel.id}'
         source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
-        initiating_player = interaction.user
 
         # Create the embed
         embed = discord.Embed(
             title="Looking for more players...",
-            color=discord.Color.yellow()
+            color=discord.Color.yellow(),
+            description="React below to join the game!",
         )
-        embed.set_footer(text="REACT BELOW (3 players needed)")
-        embed.add_field(
-            name="Players:",
-            value=f"1. {initiating_player.name}",
-            inline=False
-        )
+        embed.add_field(name="Players:", value=f"1. {interaction.user.name}", inline=False)
 
-        # Define the buttons
-        view = discord.ui.View(timeout=15 * 60)  # 15-minute timeout
-
-        async def join_button_callback(button_interaction: discord.Interaction):
-            if lfg_uuid not in active_embeds:
-                await button_interaction.response.send_message("This LFG request is no longer active.", ephemeral=True)
-                return
-
-            user_id = button_interaction.user.id
-            display_name = button_interaction.user.name
-
-            if user_id not in active_embeds[lfg_uuid]["players"]:
-                active_embeds[lfg_uuid]["players"][user_id] = display_name
-                await update_embeds(lfg_uuid)
-
-            await button_interaction.response.defer()
-
-        async def leave_button_callback(button_interaction: discord.Interaction):
-            if lfg_uuid not in active_embeds:
-                await button_interaction.response.send_message("This LFG request is no longer active.", ephemeral=True)
-                return
-
-            user_id = button_interaction.user.id
-
-            if user_id in active_embeds[lfg_uuid]["players"]:
-                del active_embeds[lfg_uuid]["players"][user_id]
-                await update_embeds(lfg_uuid)
-
-            await button_interaction.response.defer()
-
-        join_button = discord.ui.Button(style=discord.ButtonStyle.success, label="JOIN")
-        leave_button = discord.ui.Button(style=discord.ButtonStyle.danger, label="LEAVE")
-
-        join_button.callback = join_button_callback
-        leave_button.callback = leave_button_callback
-
-        view.add_item(join_button)
-        view.add_item(leave_button)
-
-        # Distribute the embed to all channels
+        # Track the BigLFG embed
         sent_messages = {}
         for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
             destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
-
-            # Ensure channel filters are respected
-            logging.debug(f"Source filter: {source_filter}, Destination filter: {destination_filter}")
             if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
-                channel = client.get_channel(int(destination_channel_id.split('_')[1]))
-                if channel:
-                    sent_message = await channel.send(embed=embed, view=view)
-                    sent_messages[destination_channel_id] = sent_message
+                destination_channel = client.get_channel(int(destination_channel_id.split('_')[1]))
+                if destination_channel:
+                    sent_message = await relay_lfg_embed(embed, source_filter, interaction.user, destination_channel)
+                    if sent_message:
+                        sent_messages[destination_channel_id] = sent_message
 
-        # Store active embed data
         if sent_messages:
             active_embeds[lfg_uuid] = {
-                "players": {initiating_player.id: initiating_player.name},
+                "players": {interaction.user.id: interaction.user.name},
                 "messages": sent_messages,
                 "task": asyncio.create_task(lfg_timeout(lfg_uuid)),
             }
-
-            await interaction.followup.send("LFG request sent across channels.", ephemeral=True)
+            await interaction.followup.send("BigLFG request sent successfully!", ephemeral=True)
         else:
-            await interaction.followup.send("Failed to send LFG request to any channels.", ephemeral=True)
-
+            await interaction.followup.send("Failed to send BigLFG request to any channels.", ephemeral=True)
     except Exception as e:
-        logging.error(f"Error in /biglfg command: {e}")
-        try:
-            await interaction.followup.send("An error occurred while processing the LFG request.", ephemeral=True)
-        except discord.HTTPException as e:
-            logging.error(f"Error sending error message: {e}")
+        logging.error(f"Error in BigLFG command: {e}")
 
 # -------------------------------------------------------------------------
 # Helper Functions
