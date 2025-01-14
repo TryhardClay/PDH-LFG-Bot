@@ -136,26 +136,26 @@ def save_channel_filters():
 
 async def relay_message(source_message, destination_channel):
     """
-    Relay a message to a destination channel with forced attribution to the original author.
-    The message includes the original author's name and the server of origin.
+    Relay a message to a destination channel using the Gateway API.
+    The propagated message explicitly attributes the original author and server.
     """
     try:
-        # Dynamically format the content to include the author's name and server name
+        # Format the relayed message content with forced attribution
         formatted_content = f"{source_message.author.name} from {source_message.guild.name}:\n{source_message.content}"
         
-        # Send the relayed message
-        relayed_message = await destination_channel.send(formatted_content)
+        # Send the message to the destination channel via the Gateway
+        relayed_message = await destination_channel.send(content=formatted_content)
         
-        # Generate a unique ID and store message info for future edits/deletions
+        # Store message details for tracking edits/deletions
         unique_id = str(uuid.uuid4())
         relayed_messages[unique_id] = {
             "original_message": source_message,
             "relayed_message": relayed_message,
         }
-        logging.info(f"Message relayed to {destination_channel.id} with unique_id: {unique_id}")
+        logging.info(f"Message relayed to channel {destination_channel.id} with unique_id: {unique_id}")
         return unique_id
     except Exception as e:
-        logging.error(f"Error relaying message to {destination_channel.id}: {e}")
+        logging.error(f"Error relaying message to channel {destination_channel.id}: {e}")
         return None
 
 # -------------------------------------------------------------------------
@@ -180,31 +180,26 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
+    """
+    Handle new messages and propagate them to linked channels in other servers.
+    """
     if message.author == client.user or message.webhook_id:
-        return  # Ignore bot and webhook messages
-
+        return  # Ignore bot messages and webhook-triggered messages
+    
     source_channel_id = f'{message.guild.id}_{message.channel.id}'
-    content = message.content
-    embeds = [embed.to_dict() for embed in message.embeds]
-    attachments = "\n".join([attachment.url for attachment in message.attachments]) if message.attachments else ""
-
-    if source_channel_id in WEBHOOK_URLS:
+    
+    if source_channel_id in WEBHOOK_URLS:  # Use WEBHOOK_URLS as a channel-link registry only
         source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
+        
         for destination_channel_id in WEBHOOK_URLS:
             if source_channel_id != destination_channel_id:
                 destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
+                
+                # Match filters and relay messages via Gateway
                 if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
-                    channel = client.get_channel(int(destination_channel_id.split('_')[1]))
-                    if channel:
-                        relayed_message = await channel.send(
-                            content=f"{content}\n{attachments}",
-                            embeds=embeds
-                        )
-                        unique_id = str(uuid.uuid4())
-                        relayed_messages[unique_id] = {
-                            "original_message": message,
-                            "relayed_message": relayed_message
-                        }
+                    destination_channel = client.get_channel(int(destination_channel_id.split('_')[1]))
+                    if destination_channel:
+                        await relay_message(message, destination_channel)
 
 @client.event
 async def on_message_edit(before, after):
