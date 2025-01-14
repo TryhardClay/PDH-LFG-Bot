@@ -135,25 +135,22 @@ def save_channel_filters():
         logging.error(f"Error saving channel filters: {e}")
 
 async def relay_message(source_message, destination_channel):
-    """Relay a message to a destination channel and track it."""
     unique_id = str(uuid.uuid4())  # Generate a unique message ID
-    relayed_message = await destination_channel.send(
-        content=source_message.content,
-        username=f"{source_message.author.name} from {source_message.guild.name}",
-        avatar_url=source_message.author.avatar.url if source_message.author.avatar else None,
-    )
+    relayed_message = await destination_channel.send(content=source_message.content)
 
-    # Ensure the original message ID is linked to its relayed messages
-    if source_message.id not in relayed_messages:
-        relayed_messages[source_message.id] = {
-            "unique_id": unique_id,
-            "relayed_messages": {}
+    # Logging to track progress
+    logging.info(f"Relayed message created in {destination_channel.id} with unique_id: {unique_id}")
+
+    # Store the message ID and its corresponding data
+    if unique_id not in relayed_messages:
+        relayed_messages[unique_id] = {
+            "original_message": source_message,
+            "relayed_message": relayed_message,
         }
+        logging.info(f"relayed_messages updated: {unique_id} -> {relayed_messages[unique_id]}")
+    else:
+        logging.warning(f"Unique ID {unique_id} already exists in relayed_messages!")
 
-    relayed_messages[source_message.id]["relayed_messages"][destination_channel.id] = relayed_message
-
-    # Logging for debugging
-    logging.info(f"Message relayed: Original ID {source_message.id} -> Relayed ID {relayed_message.id}")
     return unique_id
 
 # -------------------------------------------------------------------------
@@ -216,18 +213,20 @@ async def on_message(message):
 @client.event
 async def on_message_edit(before, after):
     """Handle message edits and propagate them across associated channels."""
-    logging.info(f"Processing edit for message ID: {before.id}")
-
-    if before.id in relayed_messages:
-        data = relayed_messages[before.id]
-        for channel_id, relayed_message in data["relayed_messages"].items():
-            try:
+    try:
+        logging.info(f"Processing edit for message ID: {before.id}")
+        for unique_id, data in relayed_messages.items():
+            if data["original_message"].id == before.id:
+                # Propagate the edit
+                logging.info(f"Edit found for unique_id {unique_id}. Propagating edit...")
+                relayed_message = data["relayed_message"]
                 await relayed_message.edit(content=after.content)
                 logging.info(f"Message edit propagated: {before.content} -> {after.content}")
-            except Exception as e:
-                logging.error(f"Error propagating edit to channel {channel_id}: {e}")
-    else:
-        logging.warning(f"Original message {before.id} not found in relayed_messages. Cannot propagate edits.")
+                break
+        else:
+            logging.warning(f"Original message {before.id} not found in relayed_messages. Cannot propagate edits.")
+    except Exception as e:
+        logging.error(f"Error in on_message_edit: {e}")
 
 @client.event
 async def on_message_delete(message):
@@ -250,50 +249,24 @@ async def on_message_delete(message):
 
 @client.event
 async def on_reaction_add(reaction, user):
-    """Handle reaction additions and propagate them across channels."""
     if user.bot:
         return  # Ignore bot reactions
 
-    logging.info(f"Processing reaction {reaction.emoji} added by {user.name} to message ID: {reaction.message.id}")
-
-    if reaction.message.id in relayed_messages:
-        data = relayed_messages[reaction.message.id]
-        for channel_id, relayed_message in data["relayed_messages"].items():
-            try:
-                target_message = await relayed_message.channel.fetch_message(relayed_message.id)
-                await target_message.add_reaction(reaction.emoji)
-                logging.info(f"Reaction {reaction.emoji} added to relayed message in channel {channel_id}")
-            except Exception as e:
-                logging.error(f"Error propagating reaction {reaction.emoji} to channel {channel_id}: {e}")
+    for unique_id, data in relayed_messages.items():
+        if data.get("original_message") and data["original_message"].id == reaction.message.id:
+            if "relayed_messages" in data and isinstance(data["relayed_messages"], dict):
+                for channel_id, relayed_message in data["relayed_messages"].items():
+                    try:
+                        target_message = await relayed_message.channel.fetch_message(relayed_message.id)
+                        await target_message.add_reaction(reaction.emoji)
+                        logging.info(f"Propagated reaction {reaction.emoji} to channel {channel_id}")
+                    except Exception as e:
+                        logging.error(f"Error propagating reaction {reaction.emoji} to channel {channel_id}: {e}")
+            else:
+                logging.warning(f"'relayed_messages' key missing or invalid for unique_id {unique_id}.")
+            break
     else:
         logging.warning(f"Original message {reaction.message.id} not found in relayed_messages. Cannot propagate reactions.")
-
-@client.event
-async def on_reaction_remove(reaction, user):
-    """Handle reaction removals and propagate them across relayed messages."""
-    if user.bot:
-        return  # Ignore bot reactions
-
-    try:
-        logging.info(f"Processing reaction {reaction.emoji} removed by {user} from message ID: {reaction.message.id}")
-        for unique_id, data in relayed_messages.items():
-            if data.get("original_message") and data["original_message"].id == reaction.message.id:
-                if "relayed_messages" in data and isinstance(data["relayed_messages"], dict):
-                    for channel_id, relayed_message in data["relayed_messages"].items():
-                        try:
-                            # Fetch the message to ensure it's up-to-date
-                            target_message = await relayed_message.channel.fetch_message(relayed_message.id)
-                            await target_message.remove_reaction(reaction.emoji, user)
-                            logging.info(f"Removed reaction {reaction.emoji} from channel {channel_id}")
-                        except Exception as e:
-                            logging.error(f"Error removing reaction {reaction.emoji} from channel {channel_id}: {e}")
-                else:
-                    logging.warning(f"'relayed_messages' key missing or invalid for unique_id {unique_id}.")
-                break
-        else:
-            logging.warning(f"Original message {reaction.message.id} not found in relayed_messages. Cannot propagate reaction removals.")
-    except Exception as e:
-        logging.error(f"Error in on_reaction_remove: {e}")
 
 @client.event
 async def on_guild_remove(guild):
