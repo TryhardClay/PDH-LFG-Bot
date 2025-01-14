@@ -136,26 +136,26 @@ def save_channel_filters():
 
 async def relay_message(source_message, destination_channel):
     """
-    Relay a message to a destination channel with attribution to the original author.
+    Relay a message to a destination channel with forced attribution to the original author.
+    The message includes the original author's name and the server of origin.
     """
     try:
-        # Send the message and preserve the original author's identity
-        relayed_message = await destination_channel.send(
-            content=source_message.content,
-            username=f"{source_message.author.name} from {source_message.guild.name}",
-            avatar_url=source_message.author.avatar.url if source_message.author.avatar else None
-        )
-
-        # Store relayed message information for tracking edits, deletions, etc.
+        # Dynamically format the content to include the author's name and server name
+        formatted_content = f"{source_message.author.name} from {source_message.guild.name}:\n{source_message.content}"
+        
+        # Send the relayed message
+        relayed_message = await destination_channel.send(formatted_content)
+        
+        # Generate a unique ID and store message info for future edits/deletions
         unique_id = str(uuid.uuid4())
         relayed_messages[unique_id] = {
             "original_message": source_message,
             "relayed_message": relayed_message,
         }
-        logging.info(f"Message relayed successfully with unique_id: {unique_id}")
+        logging.info(f"Message relayed to {destination_channel.id} with unique_id: {unique_id}")
         return unique_id
     except Exception as e:
-        logging.error(f"Error relaying message: {e}")
+        logging.error(f"Error relaying message to {destination_channel.id}: {e}")
         return None
 
 # -------------------------------------------------------------------------
