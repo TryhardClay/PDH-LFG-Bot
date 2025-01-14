@@ -5,6 +5,7 @@ import json
 import os
 import logging
 import uuid
+import time
 from discord.ext import commands
 from discord.ext.commands import has_permissions
 from discord.ui import Button, View
@@ -19,6 +20,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 # Create a dictionary with a 24-hour expiration (in seconds)
 relayed_text_messages = TTLCache(maxsize=10000, ttl=24 * 60 * 60)  # Max size, TTL, and 24-hour expiration
+
+# Set up global rate limit handling
+RATE_LIMIT_DELAY = 0.5  # Default delay between API calls to prevent spamming
 
 # BigLFG Embed Tracking
 active_embeds = {}  # Independently managed
@@ -142,10 +146,11 @@ def save_channel_filters():
 # -------------------------------------------------------------------------
 
 # Text Message Relay
+# Text Message Relay
 async def relay_text_message(source_message, destination_channel):
     """
     Relay a text message across servers using the Gateway API.
-    Includes attribution to the original author and origin server.
+    Includes attribution to the original author and origin server with rate-limit management.
     """
     try:
         # Format message attribution
@@ -153,6 +158,9 @@ async def relay_text_message(source_message, destination_channel):
             f"{source_message.author.name} (from {source_message.guild.name}) said:\n"
             f"{source_message.content}"
         )
+
+        # Introduce a small delay to avoid spamming API
+        await asyncio.sleep(RATE_LIMIT_DELAY)
 
         # Send message to destination channel
         relayed_message = await destination_channel.send(content=formatted_content)
@@ -164,9 +172,16 @@ async def relay_text_message(source_message, destination_channel):
             "relayed_message": relayed_message,
         }
         logging.info(f"Relayed text message to channel {destination_channel.id} with unique_id: {unique_id}")
-        logging.debug(f"Tracking relayed message: {relayed_text_messages[unique_id]}")
 
         return unique_id
+    except discord.HTTPException as e:
+        if e.status == 429:
+            retry_after = int(e.response.headers.get("Retry-After", 1)) / 1000  # Convert milliseconds to seconds
+            logging.warning(f"Rate limit hit! Retrying after {retry_after} seconds.")
+            await asyncio.sleep(retry_after)
+            return await relay_text_message(source_message, destination_channel)
+        else:
+            logging.error(f"Discord API error while relaying message: {e}")
     except Exception as e:
         logging.error(f"Error relaying text message to channel {destination_channel.id}: {e}")
         return None
@@ -191,31 +206,36 @@ async def propagate_text_edit(before, after):
         logging.error(f"Error in propagate_text_edit: {e}")
 
 # Text Message Reaction Propagation
+# Text Message Reaction Propagation
 async def propagate_reaction_add(reaction, user):
     """
-    Handle and propagate reactions added to text messages across servers.
+    Handle and propagate reactions added to text messages across servers with rate-limit handling.
     """
     try:
         if user.bot:
             return  # Ignore bot reactions
 
-        # Iterate through tracked relayed messages
         for unique_id, data in relayed_text_messages.items():
             if data["original_message"].id == reaction.message.id:
-                logging.info(f"Found original message for reaction: {reaction.message.id}")
+                # Introduce a small delay to prevent spamming the API
+                await asyncio.sleep(0.5)
 
-                # Fetch and propagate the reaction to all relayed copies
+                # Propagate the reaction to the relayed copy
                 relayed_message = data["relayed_message"]
-                try:
-                    target_message = await relayed_message.channel.fetch_message(relayed_message.id)
-                    await target_message.add_reaction(reaction.emoji)
-                    logging.info(f"Reaction {reaction.emoji} propagated to channel {relayed_message.channel.id}")
-                except discord.HTTPException as e:
-                    logging.error(f"Failed to propagate reaction to channel {relayed_message.channel.id}: {e}")
-                return  # Exit after processing the correct message
-
-        # If no match is found, log a warning
-        logging.warning(f"Original message {reaction.message.id} not found in relayed_text_messages. Cannot propagate reactions.")
+                target_message = await relayed_message.channel.fetch_message(relayed_message.id)
+                await target_message.add_reaction(reaction.emoji)
+                logging.info(f"Propagated reaction {reaction.emoji} to channel {relayed_message.channel.id}")
+                break
+        else:
+            logging.warning(f"Original message {reaction.message.id} not found in relayed_text_messages. Cannot propagate reactions.")
+    except discord.HTTPException as e:
+        if e.status == 429:
+            retry_after = int(e.response.headers.get("Retry-After", 1)) / 1000  # Convert milliseconds to seconds
+            logging.warning(f"Rate limit hit! Retrying after {retry_after} seconds.")
+            await asyncio.sleep(retry_after)
+            return await propagate_reaction_add(reaction, user)
+        else:
+            logging.error(f"Discord API error while propagating reaction: {e}")
     except Exception as e:
         logging.error(f"Error in propagate_reaction_add: {e}")
 
@@ -410,27 +430,39 @@ async def on_message_delete(message):
 @client.event
 async def on_reaction_add(reaction, user):
     """
-    Handles adding reactions to a message and propagates them to all relayed copies.
+    Propagates reactions across all relayed copies of a message to maintain consistency.
+    Now uses distinct logic and includes rate-limit handling.
     """
     if user.bot:
         return  # Ignore bot reactions
 
     try:
-        logging.info(f"Processing reaction {reaction.emoji} added by {user.name} to message ID: {reaction.message.id}")
+        logging.info(f"Processing reaction {reaction.emoji} for message ID: {reaction.message.id}")
 
         for unique_id, data in relayed_text_messages.items():
             if data["original_message"].id == reaction.message.id:
                 # Propagate the reaction to the relayed copy
                 relayed_message = data["relayed_message"]
-                logging.info(f"Propagating reaction {reaction.emoji} to relayed message ID: {relayed_message.id}")
 
-                target_message = await relayed_message.channel.fetch_message(relayed_message.id)
-                await target_message.add_reaction(reaction.emoji)
+                # Introduce a small delay to prevent rate-limiting
+                await asyncio.sleep(RATE_LIMIT_DELAY)
 
-                logging.info(f"Successfully propagated reaction {reaction.emoji} to channel {relayed_message.channel.id}")
-                return
-
-        logging.warning(f"Original message {reaction.message.id} not found in relayed_text_messages. Cannot propagate reactions.")
+                try:
+                    # Fetch the relayed message and add the reaction
+                    target_message = await relayed_message.channel.fetch_message(relayed_message.id)
+                    await target_message.add_reaction(reaction.emoji)
+                    logging.info(f"Reaction {reaction.emoji} propagated to relayed message in channel {relayed_message.channel.id}")
+                except discord.HTTPException as e:
+                    if e.status == 429:
+                        retry_after = int(e.response.headers.get("Retry-After", 1)) / 1000
+                        logging.warning(f"Rate limit hit while adding reaction! Retrying after {retry_after} seconds.")
+                        await asyncio.sleep(retry_after)
+                        await target_message.add_reaction(reaction.emoji)
+                    else:
+                        logging.error(f"Discord API error while propagating reaction: {e}")
+                break
+        else:
+            logging.warning(f"Original message {reaction.message.id} not found in relayed_text_messages. Cannot propagate reactions.")
     except Exception as e:
         logging.error(f"Error in on_reaction_add: {e}")
 
@@ -598,11 +630,11 @@ async def about(interaction: discord.Interaction):
         logging.error(f"Error in /about command: {e}")
         await interaction.response.send_message("An error occurred while processing the command.", ephemeral=True)
 
-
 @client.tree.command(name="biglfg", description="Create a cross-server LFG request.")
 async def biglfg(interaction: discord.Interaction):
     """
-    Handles the creation and propagation of BigLFG embeds across connected servers.
+    Handles the creation and propagation of BigLFG embeds across connected servers
+    with rate-limit handling for multiple destinations.
     """
     try:
         await interaction.response.defer()
@@ -628,6 +660,8 @@ async def biglfg(interaction: discord.Interaction):
             if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
                 destination_channel = client.get_channel(int(destination_channel_id.split('_')[1]))
                 if destination_channel:
+                    # Introduce a small delay to prevent rate-limiting
+                    await asyncio.sleep(RATE_LIMIT_DELAY)
                     sent_message = await destination_channel.send(embed=embed, view=create_lfg_view())
                     if sent_message:
                         sent_messages[destination_channel_id] = sent_message
@@ -642,6 +676,14 @@ async def biglfg(interaction: discord.Interaction):
         else:
             await interaction.followup.send("Failed to send BigLFG request to any channels.", ephemeral=True)
 
+    except discord.HTTPException as e:
+        if e.status == 429:
+            retry_after = int(e.response.headers.get("Retry-After", 1)) / 1000
+            logging.warning(f"Rate limit hit during BigLFG command! Retrying after {retry_after} seconds.")
+            await asyncio.sleep(retry_after)
+            await biglfg(interaction)
+        else:
+            logging.error(f"Discord API error in BigLFG command: {e}")
     except Exception as e:
         logging.error(f"Error in BigLFG command: {e}")
         try:
@@ -656,11 +698,15 @@ async def biglfg(interaction: discord.Interaction):
 async def message_relay_loop():
     """
     Main loop for handling message propagation across connected channels.
-    This function ensures messages are relayed between servers based on filters and configurations.
+    Implements rate-limit-aware handling for all queued tasks.
     """
     while True:
-        await asyncio.sleep(1)  # Poll for new messages every second
-        # Placeholder for additional logic if message queuing or advanced relay is added
+        try:
+            # Introduce a small delay to prevent excessive API calls
+            await asyncio.sleep(RATE_LIMIT_DELAY)
+            # Placeholder for additional logic if message queuing or advanced relay is added
+        except Exception as e:
+            logging.error(f"Error in message relay loop: {e}")
 
 # -------------------------------------------------------------------------
 # Start the Bot
@@ -670,5 +716,13 @@ if __name__ == "__main__":
     try:
         logging.info("Starting the bot...")
         client.run(TOKEN)
+    except discord.HTTPException as e:
+        if e.status == 429:
+            retry_after = int(e.response.headers.get("Retry-After", 1)) / 1000
+            logging.critical(f"Rate limit hit during bot start! Retrying after {retry_after} seconds.")
+            asyncio.run(asyncio.sleep(retry_after))
+            client.run(TOKEN)
+        else:
+            logging.critical(f"Discord API error while starting the bot: {e}")
     except Exception as e:
         logging.critical(f"Critical error while starting the bot: {e}")
