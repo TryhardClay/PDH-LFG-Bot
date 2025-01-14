@@ -92,6 +92,10 @@ relayed_messages = {}
 # -------------------------------------------------------------------------
 
 async def send_webhook_message(webhook_url, content=None, embeds=None, username=None, avatar_url=None):
+    """
+    Send a message using a webhook to a specific channel.
+    Handles content, embeds, username attribution, and avatar.
+    """
     async with aiohttp.ClientSession() as session:
         data = {}
         if content:
@@ -124,33 +128,40 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
     return None
 
 def save_webhook_data():
+    """
+    Save the current webhook data to persistent storage.
+    """
     try:
         with open(PERSISTENT_DATA_PATH, 'w') as f:
             json.dump(WEBHOOK_URLS, f, indent=4)
     except Exception as e:
-        logging.error(f"Error saving webhook data: {e}")
+        logging.error(f"Error saving webhook data to {PERSISTENT_DATA_PATH}: {e}")
 
 def save_channel_filters():
+    """
+    Save the current channel filters to persistent storage.
+    """
     try:
         with open(CHANNEL_FILTERS_PATH, 'w') as f:
             json.dump(CHANNEL_FILTERS, f, indent=4)
     except Exception as e:
-        logging.error(f"Error saving channel filters: {e}")
+        logging.error(f"Error saving channel filters to {CHANNEL_FILTERS_PATH}: {e}")
 
-# Text Message Relay
+# -------------------------------------------------------------------------
+# Gateway Functions
+# -------------------------------------------------------------------------
+
 async def relay_text_message(source_message, destination_channel):
     """
     Relay a text message across servers using the Gateway API.
     Includes attribution to the original author and origin server.
     """
     try:
-        # Format message attribution
         formatted_content = (
             f"{source_message.author.name} (from {source_message.guild.name}) said:\n"
             f"{source_message.content}"
         )
 
-        # Send message to destination channel
         relayed_message = await destination_channel.send(content=formatted_content)
 
         # Log the relayed message
@@ -160,8 +171,7 @@ async def relay_text_message(source_message, destination_channel):
         logging.error(f"Error relaying text message to channel {destination_channel.id}: {e}")
         return None
 
-# BigLFG Embed Relay
-async def relay_lfg_embed(embed, source_filter, initiating_player, destination_channel):
+async def relay_lfg_embed(embed, destination_channel):
     """
     Relay a BigLFG embed to other connected servers using the Gateway API.
     Manages the embed view and player interactions independently.
@@ -173,6 +183,98 @@ async def relay_lfg_embed(embed, source_filter, initiating_player, destination_c
     except Exception as e:
         logging.error(f"Error relaying BigLFG embed to channel {destination_channel.id}: {e}")
         return None
+
+async def update_embeds(lfg_uuid):
+    """
+    Update all instances of a BigLFG embed across connected servers.
+    Adjusts the player list and embed content dynamically.
+    """
+    data = active_embeds[lfg_uuid]
+    players = data["players"]
+
+    player_list = "\n".join([f"{i + 1}. {name}" for i, name in enumerate(players.values())]) if players else "Empty"
+
+    for message in data["messages"].values():
+        try:
+            embed = discord.Embed(
+                title="Looking for more players...",
+                color=discord.Color.yellow() if len(players) < 4 else discord.Color.green(),
+                description=f"React below ({4 - len(players)} players needed)" if len(players) < 4 else "Your game is ready!",
+            )
+            embed.add_field(name="Players:", value=player_list, inline=False)
+            await message.edit(embed=embed)
+        except Exception as e:
+            logging.error(f"Error updating embed in channel {message.channel.id}: {e}")
+
+async def lfg_timeout(lfg_uuid):
+    """
+    Handle timeout for an LFG embed. Automatically updates all instances across servers.
+    """
+    await asyncio.sleep(15 * 60)  # Wait 15 minutes
+    if lfg_uuid in active_embeds:
+        data = active_embeds.pop(lfg_uuid)
+        for message in data["messages"].values():
+            try:
+                embed = discord.Embed(title="This request has timed out.", color=discord.Color.red())
+                await message.edit(embed=embed, view=None)
+            except Exception as e:
+                logging.error(f"Error updating embed on timeout: {e}")
+
+def create_lfg_view():
+    """
+    Create and return a Discord UI View with JOIN and LEAVE buttons for the BigLFG embed.
+    """
+    view = discord.ui.View(timeout=15 * 60)  # 15-minute timeout
+
+    async def join_button_callback(button_interaction: discord.Interaction):
+        lfg_uuid = None
+        for uuid, data in active_embeds.items():
+            if any(message.id == button_interaction.message.id for message in data["messages"].values()):
+                lfg_uuid = uuid
+                break
+
+        if not lfg_uuid or lfg_uuid not in active_embeds:
+            await button_interaction.response.send_message("This LFG request is no longer active.", ephemeral=True)
+            return
+
+        user_id = button_interaction.user.id
+        display_name = button_interaction.user.name
+
+        if user_id not in active_embeds[lfg_uuid]["players"]:
+            active_embeds[lfg_uuid]["players"][user_id] = display_name
+            await update_embeds(lfg_uuid)
+
+        await button_interaction.response.defer()
+
+    async def leave_button_callback(button_interaction: discord.Interaction):
+        lfg_uuid = None
+        for uuid, data in active_embeds.items():
+            if any(message.id == button_interaction.message.id for message in data["messages"].values()):
+                lfg_uuid = uuid
+                break
+
+        if not lfg_uuid or lfg_uuid not in active_embeds:
+            await button_interaction.response.send_message("This LFG request is no longer active.", ephemeral=True)
+            return
+
+        user_id = button_interaction.user.id
+
+        if user_id in active_embeds[lfg_uuid]["players"]:
+            del active_embeds[lfg_uuid]["players"][user_id]
+            await update_embeds(lfg_uuid)
+
+        await button_interaction.response.defer()
+
+    join_button = discord.ui.Button(style=discord.ButtonStyle.success, label="JOIN")
+    leave_button = discord.ui.Button(style=discord.ButtonStyle.danger, label="LEAVE")
+
+    join_button.callback = join_button_callback
+    leave_button.callback = leave_button_callback
+
+    view.add_item(join_button)
+    view.add_item(leave_button)
+
+    return view
 
 # -------------------------------------------------------------------------
 # Event Handlers
@@ -434,112 +536,6 @@ async def biglfg(interaction: discord.Interaction):
             await interaction.followup.send("An error occurred while processing the BigLFG request.", ephemeral=True)
         except discord.HTTPException as e:
             logging.error(f"Error sending error message: {e}")
-
-# -------------------------------------------------------------------------
-# Helper Functions
-# -------------------------------------------------------------------------
-
-def save_webhook_data():
-    """Save the current webhook data to persistent storage."""
-    try:
-        with open(PERSISTENT_DATA_PATH, 'w') as f:
-            json.dump(WEBHOOK_URLS, f, indent=4)
-    except Exception as e:
-        logging.error(f"Error saving webhook data to {PERSISTENT_DATA_PATH}: {e}")
-
-
-def save_channel_filters():
-    """Save the current channel filters to persistent storage."""
-    try:
-        with open(CHANNEL_FILTERS_PATH, 'w') as f:
-            json.dump(CHANNEL_FILTERS, f, indent=4)
-    except Exception as e:
-        logging.error(f"Error saving channel filters to {CHANNEL_FILTERS_PATH}: {e}")
-
-async def update_embeds(embed_id):
-    data = active_embeds[embed_id]
-    players = data["players"]  # Should always be a dictionary
-
-    # Prepare the player list display or default to "Empty"
-    if not players:
-        player_list = "Empty"
-    else:
-        player_list = "\n".join([f"{i + 1}. {name}" for i, name in enumerate(players.values())])
-
-    for channel_id, message in data["messages"].items():
-        try:
-            embed = discord.Embed(
-                title="Looking for more players...",
-                color=discord.Color.yellow() if len(players) < 4 else discord.Color.green(),
-                description=f"REACT BELOW ({4 - len(players)} players needed)" if len(players) < 4 else "Your game is ready!",
-            )
-            embed.add_field(name="Players:", value=player_list, inline=False)
-            await message.edit(embed=embed)
-        except Exception as e:
-            logging.error(f"Error updating embed in channel {channel_id}: {e}")
-
-async def join_button_callback(button_interaction: discord.Interaction):
-    embed_id = button_interaction.message.id
-    if embed_id in active_embeds:
-        data = active_embeds[embed_id]
-        players = data["players"]  # Should always be a dictionary
-        user_id = button_interaction.user.id
-
-        if user_id not in players:
-            players[user_id] = button_interaction.user.name
-            logging.info(f"Added {button_interaction.user.name} to the player list for embed {embed_id}.")
-            await update_embeds(embed_id)
-            await button_interaction.response.send_message("You've joined the game!", ephemeral=True)
-        else:
-            await button_interaction.response.send_message("You're already in the player list.", ephemeral=True)
-    else:
-        await button_interaction.response.send_message("This game is no longer active.", ephemeral=True)
-
-
-async def leave_button_callback(button_interaction: discord.Interaction):
-    embed_id = button_interaction.message.id
-    if embed_id in active_embeds:
-        data = active_embeds[embed_id]
-        players = data["players"]  # Should always be a dictionary
-        user_id = button_interaction.user.id
-
-        if user_id in players:
-            del players[user_id]
-            logging.info(f"Removed {button_interaction.user.name} from the player list for embed {embed_id}.")
-            await update_embeds(embed_id)
-            await button_interaction.response.send_message("You've left the game.", ephemeral=True)
-        else:
-            await button_interaction.response.send_message("You are not in the player list.", ephemeral=True)
-    else:
-        await button_interaction.response.send_message("This game is no longer active.", ephemeral=True)
-
-async def lfg_complete(embed_id):
-    """Mark the LFG request as complete."""
-    data = active_embeds.pop(embed_id)
-    for channel_id, message in data["messages"].items():
-        try:
-            embed = discord.Embed(title="Your game is ready!", color=discord.Color.green())
-            embed.add_field(
-                name="Players:",
-                value="\n".join([f"{i + 1}. {name}" for i, name in enumerate(data["players"])]),
-                inline=False,
-            )
-            await message.edit(embed=embed)
-        except Exception as e:
-            logging.error(f"Error completing LFG request in channel {channel_id}: {e}")
-
-
-async def lfg_timeout(embed_id):
-    """Handle timeout for an LFG embed."""
-    await asyncio.sleep(15 * 60)  # Wait 15 minutes
-    if embed_id in active_embeds:
-        data = active_embeds.pop(embed_id)
-        for message in data["messages"].values():
-            try:
-                embed = discord.Embed(title="This request has timed out.", color=discord.Color.red())
-                await message.edit(embed=embed, view=None)
-            except Exception as e:
-                logging.error(f"Error updating embed on timeout: {e}")
 
 # -------------------------------------------------------------------------
 # Message Relay Loop
