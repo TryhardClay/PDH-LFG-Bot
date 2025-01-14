@@ -164,6 +164,7 @@ async def relay_text_message(source_message, destination_channel):
             "relayed_message": relayed_message,
         }
         logging.info(f"Relayed text message to channel {destination_channel.id} with unique_id: {unique_id}")
+        logging.debug(f"Tracking relayed message: {relayed_text_messages[unique_id]}")
 
         return unique_id
     except Exception as e:
@@ -409,9 +410,56 @@ async def on_message_delete(message):
 @client.event
 async def on_reaction_add(reaction, user):
     """
-    Propagates reactions across all relayed copies of a message to maintain consistency.
+    Handles adding reactions to a message and propagates them to all relayed copies.
     """
-    await propagate_reaction_add(reaction, user)
+    if user.bot:
+        return  # Ignore bot reactions
+
+    try:
+        logging.info(f"Processing reaction {reaction.emoji} added by {user.name} to message ID: {reaction.message.id}")
+
+        for unique_id, data in relayed_text_messages.items():
+            if data["original_message"].id == reaction.message.id:
+                # Propagate the reaction to the relayed copy
+                relayed_message = data["relayed_message"]
+                logging.info(f"Propagating reaction {reaction.emoji} to relayed message ID: {relayed_message.id}")
+
+                target_message = await relayed_message.channel.fetch_message(relayed_message.id)
+                await target_message.add_reaction(reaction.emoji)
+
+                logging.info(f"Successfully propagated reaction {reaction.emoji} to channel {relayed_message.channel.id}")
+                return
+
+        logging.warning(f"Original message {reaction.message.id} not found in relayed_text_messages. Cannot propagate reactions.")
+    except Exception as e:
+        logging.error(f"Error in on_reaction_add: {e}")
+
+@client.event
+async def on_reaction_remove(reaction, user):
+    """
+    Handles removing reactions from a message and propagates the removal to all relayed copies.
+    """
+    if user.bot:
+        return  # Ignore bot reactions
+
+    try:
+        logging.info(f"Processing reaction {reaction.emoji} removed by {user.name} from message ID: {reaction.message.id}")
+
+        for unique_id, data in relayed_text_messages.items():
+            if data["original_message"].id == reaction.message.id:
+                # Propagate the reaction removal to the relayed copy
+                relayed_message = data["relayed_message"]
+                logging.info(f"Propagating reaction removal {reaction.emoji} from relayed message ID: {relayed_message.id}")
+
+                target_message = await relayed_message.channel.fetch_message(relayed_message.id)
+                await target_message.remove_reaction(reaction.emoji, user)
+
+                logging.info(f"Successfully propagated reaction removal {reaction.emoji} in channel {relayed_message.channel.id}")
+                return
+
+        logging.warning(f"Original message {reaction.message.id} not found in relayed_text_messages. Cannot propagate reaction removals.")
+    except Exception as e:
+        logging.error(f"Error in on_reaction_remove: {e}")
 
 @client.event
 async def on_guild_remove(guild):
