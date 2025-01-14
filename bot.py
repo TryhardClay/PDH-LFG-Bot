@@ -10,7 +10,6 @@ from discord.ext.commands import has_permissions
 from discord.ui import Button, View
 from cachetools import TTLCache
 
-
 # -------------------------------------------------------------------------
 # Setup and Configuration
 # -------------------------------------------------------------------------
