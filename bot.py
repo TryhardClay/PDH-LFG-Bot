@@ -144,21 +144,18 @@ async def relay_text_message(source_message, destination_channel):
     Includes attribution to the original author and origin server.
     """
     try:
-        global relayed_text_messages  # Ensure global reference
         # Format message attribution
-        formatted_content = f"{source_message.author.name} from {source_message.guild.name}:\n{source_message.content}"
-        
+        formatted_content = (
+            f"{source_message.author.name} (from {source_message.guild.name}) said:\n"
+            f"{source_message.content}"
+        )
+
         # Send message to destination channel
         relayed_message = await destination_channel.send(content=formatted_content)
-        
-        # Track the message for updates
-        unique_id = str(uuid.uuid4())
-        relayed_text_messages[unique_id] = {
-            "original_message": source_message,
-            "relayed_message": relayed_message,
-        }
-        logging.info(f"Relayed text message to {destination_channel.id} with unique_id: {unique_id}")
-        return unique_id
+
+        # Log the relayed message
+        logging.info(f"Relayed text message to channel {destination_channel.id}")
+        return relayed_message
     except Exception as e:
         logging.error(f"Error relaying text message to channel {destination_channel.id}: {e}")
         return None
@@ -171,7 +168,7 @@ async def relay_lfg_embed(embed, source_filter, initiating_player, destination_c
     """
     try:
         sent_message = await destination_channel.send(embed=embed, view=create_lfg_view())
-        logging.info(f"Relayed BigLFG embed to {destination_channel.id}")
+        logging.info(f"Relayed BigLFG embed to channel {destination_channel.id}")
         return sent_message
     except Exception as e:
         logging.error(f"Error relaying BigLFG embed to channel {destination_channel.id}: {e}")
@@ -391,12 +388,14 @@ async def about(interaction: discord.Interaction):
 @client.tree.command(name="biglfg", description="Create a cross-server LFG request.")
 async def biglfg(interaction: discord.Interaction):
     """
-    Handles the creation and propagation of BigLFG embeds.
+    Handles the creation and propagation of BigLFG embeds across connected servers.
     """
     try:
         await interaction.response.defer()
 
+        # Generate a unique UUID for this LFG instance
         lfg_uuid = str(uuid.uuid4())
+
         source_channel_id = f'{interaction.guild.id}_{interaction.channel.id}'
         source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
 
@@ -415,7 +414,7 @@ async def biglfg(interaction: discord.Interaction):
             if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
                 destination_channel = client.get_channel(int(destination_channel_id.split('_')[1]))
                 if destination_channel:
-                    sent_message = await relay_lfg_embed(embed, source_filter, interaction.user, destination_channel)
+                    sent_message = await destination_channel.send(embed=embed, view=create_lfg_view())
                     if sent_message:
                         sent_messages[destination_channel_id] = sent_message
 
@@ -428,8 +427,13 @@ async def biglfg(interaction: discord.Interaction):
             await interaction.followup.send("BigLFG request sent successfully!", ephemeral=True)
         else:
             await interaction.followup.send("Failed to send BigLFG request to any channels.", ephemeral=True)
+
     except Exception as e:
         logging.error(f"Error in BigLFG command: {e}")
+        try:
+            await interaction.followup.send("An error occurred while processing the BigLFG request.", ephemeral=True)
+        except discord.HTTPException as e:
+            logging.error(f"Error sending error message: {e}")
 
 # -------------------------------------------------------------------------
 # Helper Functions
