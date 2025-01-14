@@ -135,15 +135,19 @@ async def relay_message(source_message, destination_channel):
     unique_id = str(uuid.uuid4())  # Generate a unique message ID
     relayed_message = await destination_channel.send(content=source_message.content)
 
-    # Store the message ID and its corresponding Discord message objects
+    # Ensure the unique_id exists in the relayed_messages dictionary
     if unique_id not in relayed_messages:
         relayed_messages[unique_id] = {
             "original_message": source_message,
             "relayed_messages": {}
         }
+
+    # Add the relayed message to the appropriate key
     relayed_messages[unique_id]["relayed_messages"][destination_channel.id] = relayed_message
 
-    logging.debug(f"Relayed message stored with unique_id {unique_id}. Current state: {relayed_messages}")
+    # Debugging: Log the current state of relayed_messages
+    logging.debug(f"Stored relayed message: {unique_id} -> {relayed_messages[unique_id]}")
+
     return unique_id
 
 # -------------------------------------------------------------------------
