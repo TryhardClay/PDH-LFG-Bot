@@ -138,6 +138,9 @@ async def relay_message(source_message, destination_channel):
     unique_id = str(uuid.uuid4())  # Generate a unique message ID
     relayed_message = await destination_channel.send(content=source_message.content)
 
+    # Logging to track message IDs
+    logging.info(f"Original message ID: {source_message.id}, Relayed message ID: {relayed_message.id}")
+
     # Initialize and store the message association
     if unique_id not in relayed_messages:
         relayed_messages[unique_id] = {
@@ -253,8 +256,10 @@ async def on_reaction_add(reaction, user):
 
     logging.info(f"Processing reaction {reaction.emoji} added by {user.name} to message ID: {reaction.message.id}")
 
-    # Iterate through `relayed_messages` to find the associated original message
+    # Debug all stored messages in relayed_messages
     for unique_id, data in relayed_messages.items():
+        logging.debug(f"Checking unique_id {unique_id} with original_message ID: {data['original_message'].id}")
+
         if data["original_message"].id == reaction.message.id:
             # Found the original message
             logging.info(f"Found original message for unique_id: {unique_id}. Propagating reaction...")
@@ -262,8 +267,8 @@ async def on_reaction_add(reaction, user):
             for channel_id, relayed_message in data["relayed_messages"].items():
                 try:
                     # Fetch the relayed message object for accuracy
-                    fetched_message = await relayed_message.channel.fetch_message(relayed_message.id)
-                    await fetched_message.add_reaction(reaction.emoji)
+                    target_message = await relayed_message.channel.fetch_message(relayed_message.id)
+                    await target_message.add_reaction(reaction.emoji)
                     logging.info(f"Propagated reaction {reaction.emoji} to channel {channel_id}")
                 except Exception as e:
                     logging.error(f"Error propagating reaction {reaction.emoji} to channel {channel_id}: {e}")
