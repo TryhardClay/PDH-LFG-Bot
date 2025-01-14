@@ -304,6 +304,24 @@ def create_lfg_view():
 
     return view
 
+# Helper for timeout handling of BigLFG requests
+async def lfg_timeout(lfg_uuid):
+    """
+    Handle timeout for an LFG embed.
+    """
+    try:
+        await asyncio.sleep(15 * 60)  # Wait 15 minutes
+        if lfg_uuid in active_embeds:
+            data = active_embeds.pop(lfg_uuid)
+            for message in data["messages"].values():
+                try:
+                    embed = discord.Embed(title="This request has timed out.", color=discord.Color.red())
+                    await message.edit(embed=embed, view=None)
+                except Exception as e:
+                    logging.error(f"Error updating embed on timeout for LFG UUID {lfg_uuid}: {e}")
+    except Exception as e:
+        logging.error(f"Error in lfg_timeout for LFG UUID {lfg_uuid}: {e}")
+
 # -------------------------------------------------------------------------
 # Event Handlers
 # -------------------------------------------------------------------------
