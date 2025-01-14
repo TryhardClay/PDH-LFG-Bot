@@ -135,13 +135,13 @@ def save_channel_filters():
         logging.error(f"Error saving channel filters: {e}")
 
 async def relay_message(source_message, destination_channel):
+    """Relay a message to a destination channel and track it."""
     unique_id = str(uuid.uuid4())  # Generate a unique message ID
-    relayed_message = await destination_channel.send(content=source_message.content)
+    relayed_message = await destination_channel.send(
+        content=f"{source_message.author.name} from {source_message.guild.name}: {source_message.content}"
+    )
 
-    # Logging to track message IDs
-    logging.info(f"Original message ID: {source_message.id}, Relayed message ID: {relayed_message.id}")
-
-    # Initialize and store the message association
+    # Store the message relationship in relayed_messages
     if unique_id not in relayed_messages:
         relayed_messages[unique_id] = {
             "original_message": source_message,
@@ -149,10 +149,8 @@ async def relay_message(source_message, destination_channel):
         }
     relayed_messages[unique_id]["relayed_messages"][destination_channel.id] = relayed_message
 
-    # Debugging the state of `relayed_messages`
-    logging.debug(f"Added relayed message: {relayed_message.id} to unique_id: {unique_id}")
-    logging.debug(f"Current state of relayed_messages: {json.dumps(relayed_messages, default=str, indent=4)}")
-
+    # Logging for debugging
+    logging.info(f"Message relayed: {source_message.id} -> {relayed_message.id}")
     return unique_id
 
 # -------------------------------------------------------------------------
@@ -251,30 +249,24 @@ async def on_message_delete(message):
 
 @client.event
 async def on_reaction_add(reaction, user):
+    """Handle reaction additions and propagate them across channels."""
     if user.bot:
         return  # Ignore bot reactions
 
     logging.info(f"Processing reaction {reaction.emoji} added by {user.name} to message ID: {reaction.message.id}")
 
-    # Debug all stored messages in relayed_messages
     for unique_id, data in relayed_messages.items():
-        logging.debug(f"Checking unique_id {unique_id} with original_message ID: {data['original_message'].id}")
-
         if data["original_message"].id == reaction.message.id:
-            # Found the original message
             logging.info(f"Found original message for unique_id: {unique_id}. Propagating reaction...")
-
             for channel_id, relayed_message in data["relayed_messages"].items():
                 try:
-                    # Fetch the relayed message object for accuracy
                     target_message = await relayed_message.channel.fetch_message(relayed_message.id)
                     await target_message.add_reaction(reaction.emoji)
-                    logging.info(f"Propagated reaction {reaction.emoji} to channel {channel_id}")
+                    logging.info(f"Reaction {reaction.emoji} added to relayed message in channel {channel_id}")
                 except Exception as e:
                     logging.error(f"Error propagating reaction {reaction.emoji} to channel {channel_id}: {e}")
             break
     else:
-        # If the original message isn't found
         logging.warning(f"Original message {reaction.message.id} not found in relayed_messages. Cannot propagate reactions.")
 
 @client.event
