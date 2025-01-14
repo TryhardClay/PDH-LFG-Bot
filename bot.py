@@ -205,9 +205,8 @@ async def propagate_reaction_add(reaction, user):
                 target_message = await relayed_message.channel.fetch_message(relayed_message.id)
                 await target_message.add_reaction(reaction.emoji)
                 logging.info(f"Propagated reaction {reaction.emoji} to channel {relayed_message.channel.id}")
-                break
-        else:
-            logging.warning(f"Original message {reaction.message.id} not found in relayed_text_messages. Cannot propagate reactions.")
+                return  # Exit once the correct message is handled
+        logging.warning(f"Original message {reaction.message.id} not found in relayed_text_messages. Cannot propagate reactions.")
     except Exception as e:
         logging.error(f"Error in propagate_reaction_add: {e}")
 
@@ -231,21 +230,28 @@ async def update_embeds(lfg_uuid):
     Update all embeds associated with the given LFG UUID.
     """
     try:
+        if lfg_uuid not in active_embeds:
+            logging.warning(f"LFG UUID {lfg_uuid} not found in active_embeds. Cannot update embeds.")
+            return
+
         data = active_embeds[lfg_uuid]
         players = data["players"]
 
         player_list = "\n".join([f"{i + 1}. {name}" for i, name in enumerate(players.values())]) if players else "Empty"
 
-        for message in data["messages"].values():
-            embed = discord.Embed(
-                title="Looking for more players...",
-                color=discord.Color.yellow() if len(players) < 4 else discord.Color.green(),
-                description=f"React below ({4 - len(players)} players needed)" if len(players) < 4 else "Your game is ready!",
-            )
-            embed.add_field(name="Players:", value=player_list, inline=False)
-            await message.edit(embed=embed)
+        for channel_id, message in data["messages"].items():
+            try:
+                embed = discord.Embed(
+                    title="Looking for more players...",
+                    color=discord.Color.yellow() if len(players) < 4 else discord.Color.green(),
+                    description=f"React below ({4 - len(players)} players needed)" if len(players) < 4 else "Your game is ready!",
+                )
+                embed.add_field(name="Players:", value=player_list, inline=False)
+                await message.edit(embed=embed)
+            except Exception as e:
+                logging.error(f"Error updating embed in channel {channel_id} for LFG UUID {lfg_uuid}: {e}")
     except Exception as e:
-        logging.error(f"Error updating embeds for LFG UUID {lfg_uuid}: {e}")
+        logging.error(f"Error in update_embeds for LFG UUID {lfg_uuid}: {e}")
 
 # Helper to Create BigLFG View
 def create_lfg_view():
@@ -387,9 +393,8 @@ async def on_message_delete(message):
                 await relayed_message.delete()
                 del relayed_text_messages[unique_id]
                 logging.info(f"Successfully deleted all related relayed messages for unique_id: {unique_id}")
-                break
-        else:
-            logging.warning(f"Original message {message.id} not found in relayed_text_messages. Cannot propagate deletion.")
+                return  # Exit once the correct message is handled
+        logging.warning(f"Original message {message.id} not found in relayed_text_messages. Cannot propagate deletion.")
     except Exception as e:
         logging.error(f"Error in on_message_delete: {e}")
 
