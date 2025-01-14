@@ -136,31 +136,26 @@ def save_channel_filters():
 
 async def relay_message(source_message, destination_channel):
     """
-    Relay a message to a destination channel while preserving the original sender's attribution.
-    Uses the Gateway API to ensure attribution and synchronization.
+    Relay a message to a destination channel with attribution to the original author.
     """
     try:
-        unique_id = str(uuid.uuid4())  # Generate a unique message ID
+        # Send the message and preserve the original author's identity
         relayed_message = await destination_channel.send(
             content=source_message.content,
-            embeds=source_message.embeds,
-            reference=None,
-            mention_author=False
+            username=f"{source_message.author.name} from {source_message.guild.name}",
+            avatar_url=source_message.author.avatar.url if source_message.author.avatar else None
         )
 
-        # Log message relaying and update tracking data
-        logging.info(f"Relayed message created in channel {destination_channel.id} with unique_id: {unique_id}")
-        if unique_id not in relayed_messages:
-            relayed_messages[unique_id] = {
-                "original_message": source_message,
-                "relayed_messages": {destination_channel.id: relayed_message}
-            }
-        else:
-            logging.warning(f"Duplicate unique_id {unique_id} detected in relayed_messages!")
-
+        # Store relayed message information for tracking edits, deletions, etc.
+        unique_id = str(uuid.uuid4())
+        relayed_messages[unique_id] = {
+            "original_message": source_message,
+            "relayed_message": relayed_message,
+        }
+        logging.info(f"Message relayed successfully with unique_id: {unique_id}")
         return unique_id
     except Exception as e:
-        logging.error(f"Error relaying message to channel {destination_channel.id}: {e}")
+        logging.error(f"Error relaying message: {e}")
         return None
 
 # -------------------------------------------------------------------------
@@ -169,28 +164,19 @@ async def relay_message(source_message, destination_channel):
 
 @client.event
 async def on_ready():
-    logging.info(f'Logged in as {client.user}')
-    await client.tree.sync()
-    global message_relay_task
-    if message_relay_task is None or message_relay_task.done():
-        message_relay_task = asyncio.create_task(message_relay_loop())
+    logging.info(f"Bot is ready and logged in as {client.user}")
 
-@client.event
-async def on_guild_join(guild):
-    # Send the welcome message to a suitable channel
-    for channel in guild.text_channels:
-        if channel.permissions_for(guild.me).send_messages:
-            try:
-                await channel.send("Hello! I'm your cross-server communication bot. \n"
-                                  "An admin needs to use the `/setchannel` command to \n"
-                                  "choose a channel for relaying messages. \n"
-                                  "Be sure to select an appropriate filter; either 'cpdh' or 'casual'.")
-                break  # Stop after sending the message once
-            except discord.Forbidden:
-                pass  # Continue to the next channel if sending fails
+    # Automatically reload configuration files on startup
+    global WEBHOOK_URLS, CHANNEL_FILTERS
+    WEBHOOK_URLS = load_webhook_data()
+    CHANNEL_FILTERS = load_channel_filters()
+    logging.info("Configurations reloaded successfully.")
 
-    # Manage the role when joining a server
-    await manage_role(guild)
+    # Notify the owner or log the restart
+    for guild in client.guilds:
+        logging.info(f"Connected to server: {guild.name} (ID: {guild.id})")
+
+    logging.info("Bot is ready to receive updates and relay messages.")
 
 @client.event
 async def on_message(message):
