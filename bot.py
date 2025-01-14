@@ -198,14 +198,22 @@ async def propagate_reaction_add(reaction, user):
         if user.bot:
             return  # Ignore bot reactions
 
+        # Iterate through tracked relayed messages
         for unique_id, data in relayed_text_messages.items():
             if data["original_message"].id == reaction.message.id:
-                # Propagate the reaction to all relayed copies
+                logging.info(f"Found original message for reaction: {reaction.message.id}")
+
+                # Fetch and propagate the reaction to all relayed copies
                 relayed_message = data["relayed_message"]
-                target_message = await relayed_message.channel.fetch_message(relayed_message.id)
-                await target_message.add_reaction(reaction.emoji)
-                logging.info(f"Propagated reaction {reaction.emoji} to channel {relayed_message.channel.id}")
-                return  # Exit once the correct message is handled
+                try:
+                    target_message = await relayed_message.channel.fetch_message(relayed_message.id)
+                    await target_message.add_reaction(reaction.emoji)
+                    logging.info(f"Reaction {reaction.emoji} propagated to channel {relayed_message.channel.id}")
+                except discord.HTTPException as e:
+                    logging.error(f"Failed to propagate reaction to channel {relayed_message.channel.id}: {e}")
+                return  # Exit after processing the correct message
+
+        # If no match is found, log a warning
         logging.warning(f"Original message {reaction.message.id} not found in relayed_text_messages. Cannot propagate reactions.")
     except Exception as e:
         logging.error(f"Error in propagate_reaction_add: {e}")
