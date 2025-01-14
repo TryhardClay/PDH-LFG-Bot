@@ -134,24 +134,22 @@ def save_channel_filters():
     except Exception as e:
         logging.error(f"Error saving channel filters: {e}")
 
-async def relay_message(source_message, destination_channel):
-    unique_id = str(uuid.uuid4())  # Generate a unique message ID
-    relayed_message = await destination_channel.send(content=source_message.content)
-
-    # Logging to track progress
-    logging.info(f"Relayed message created in {destination_channel.id} with unique_id: {unique_id}")
-
-    # Store the message ID and its corresponding data
-    if unique_id not in relayed_messages:
-        relayed_messages[unique_id] = {
-            "original_message": source_message,
-            "relayed_message": relayed_message,
-        }
-        logging.info(f"relayed_messages updated: {unique_id} -> {relayed_messages[unique_id]}")
-    else:
-        logging.warning(f"Unique ID {unique_id} already exists in relayed_messages!")
-
-    return unique_id
+async def relay_message(source_message, destination_channel, webhook_url):
+    """Relay a message to a destination channel using webhooks for user attribution."""
+    try:
+        async with aiohttp.ClientSession() as session:
+            data = {
+                "content": source_message.content,
+                "username": f"{source_message.author.name} from {source_message.guild.name}",
+                "avatar_url": source_message.author.avatar.url if source_message.author.avatar else None,
+            }
+            async with session.post(webhook_url, json=data) as response:
+                if response.status == 204:
+                    logging.info(f"Message relayed to {destination_channel.id} via webhook.")
+                else:
+                    logging.warning(f"Failed to relay message to {destination_channel.id}. Status: {response.status}")
+    except Exception as e:
+        logging.error(f"Error relaying message to {destination_channel.id}: {e}")
 
 # -------------------------------------------------------------------------
 # Event Handlers
@@ -188,27 +186,15 @@ async def on_message(message):
         return  # Ignore bot and webhook messages
 
     source_channel_id = f'{message.guild.id}_{message.channel.id}'
-    content = message.content
-    embeds = [embed.to_dict() for embed in message.embeds]
-    attachments = "\n".join([attachment.url for attachment in message.attachments]) if message.attachments else ""
-
     if source_channel_id in WEBHOOK_URLS:
         source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
-        for destination_channel_id in WEBHOOK_URLS:
+        for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
             if source_channel_id != destination_channel_id:
                 destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
                 if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
                     channel = client.get_channel(int(destination_channel_id.split('_')[1]))
                     if channel:
-                        relayed_message = await channel.send(
-                            content=f"{content}\n{attachments}",
-                            embeds=embeds
-                        )
-                        unique_id = str(uuid.uuid4())
-                        relayed_messages[unique_id] = {
-                            "original_message": message,
-                            "relayed_message": relayed_message
-                        }
+                        await relay_message(message, channel, webhook_data["url"])
 
 @client.event
 async def on_message_edit(before, after):
