@@ -18,7 +18,7 @@ from cachetools import TTLCache
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Create a dictionary with a 24-hour expiration (in seconds)
-relayed_messages = TTLCache(maxsize=10000, ttl=24 * 60 * 60)  # Max size and TTL
+relayed_text_messages = TTLCache(maxsize=10000, ttl=24 * 60 * 60)  # Max size, TTL, and 24-hour expiration
 
 # BigLFG Embed Tracking
 active_embeds = {}  # Independently managed
@@ -144,6 +144,7 @@ async def relay_text_message(source_message, destination_channel):
     Includes attribution to the original author and origin server.
     """
     try:
+        global relayed_text_messages  # Ensure global reference
         # Format message attribution
         formatted_content = f"{source_message.author.name} from {source_message.guild.name}:\n{source_message.content}"
         
@@ -161,7 +162,6 @@ async def relay_text_message(source_message, destination_channel):
     except Exception as e:
         logging.error(f"Error relaying text message to channel {destination_channel.id}: {e}")
         return None
-
 
 # BigLFG Embed Relay
 async def relay_lfg_embed(embed, source_filter, initiating_player, destination_channel):
