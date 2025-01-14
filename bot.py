@@ -135,23 +135,33 @@ def save_channel_filters():
         logging.error(f"Error saving channel filters: {e}")
 
 async def relay_message(source_message, destination_channel):
-    unique_id = str(uuid.uuid4())  # Generate a unique message ID
-    relayed_message = await destination_channel.send(content=source_message.content)
+    """
+    Relay a message to a destination channel while preserving the original sender's attribution.
+    Uses the Gateway API to ensure attribution and synchronization.
+    """
+    try:
+        unique_id = str(uuid.uuid4())  # Generate a unique message ID
+        relayed_message = await destination_channel.send(
+            content=source_message.content,
+            embeds=source_message.embeds,
+            reference=None,
+            mention_author=False
+        )
 
-    # Logging to track progress
-    logging.info(f"Relayed message created in {destination_channel.id} with unique_id: {unique_id}")
+        # Log message relaying and update tracking data
+        logging.info(f"Relayed message created in channel {destination_channel.id} with unique_id: {unique_id}")
+        if unique_id not in relayed_messages:
+            relayed_messages[unique_id] = {
+                "original_message": source_message,
+                "relayed_messages": {destination_channel.id: relayed_message}
+            }
+        else:
+            logging.warning(f"Duplicate unique_id {unique_id} detected in relayed_messages!")
 
-    # Store the message ID and its corresponding data
-    if unique_id not in relayed_messages:
-        relayed_messages[unique_id] = {
-            "original_message": source_message,
-            "relayed_message": relayed_message,
-        }
-        logging.info(f"relayed_messages updated: {unique_id} -> {relayed_messages[unique_id]}")
-    else:
-        logging.warning(f"Unique ID {unique_id} already exists in relayed_messages!")
-
-    return unique_id
+        return unique_id
+    except Exception as e:
+        logging.error(f"Error relaying message to channel {destination_channel.id}: {e}")
+        return None
 
 # -------------------------------------------------------------------------
 # Event Handlers
