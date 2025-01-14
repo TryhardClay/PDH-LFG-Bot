@@ -202,12 +202,17 @@ async def on_message_edit(before, after):
     try:
         logging.info(f"Processing edit for message ID: {before.id}")
         for unique_id, data in relayed_messages.items():
-            if data["original_message"].id == before.id:
-                # Propagate the edit
-                logging.info(f"Edit found for unique_id {unique_id}. Propagating edit...")
-                relayed_message = data["relayed_message"]
-                await relayed_message.edit(content=after.content)
-                logging.info(f"Message edit propagated: {before.content} -> {after.content}")
+            if data.get("original_message") and data["original_message"].id == before.id:
+                # Propagate the edit to all relayed messages
+                if "relayed_messages" in data and isinstance(data["relayed_messages"], dict):
+                    for channel_id, relayed_message in data["relayed_messages"].items():
+                        try:
+                            await relayed_message.edit(content=after.content)
+                            logging.info(f"Propagated edit to channel {channel_id}: {before.content} -> {after.content}")
+                        except Exception as e:
+                            logging.error(f"Error propagating edit to channel {channel_id}: {e}")
+                else:
+                    logging.warning(f"'relayed_messages' key missing or invalid for unique_id {unique_id}.")
                 break
         else:
             logging.warning(f"Original message {before.id} not found in relayed_messages. Cannot propagate edits.")
