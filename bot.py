@@ -712,17 +712,30 @@ async def message_relay_loop():
 # Start the Bot
 # -------------------------------------------------------------------------
 
+async def start_bot():
+    """
+    Asynchronous function to start the bot with rate-limit handling.
+    """
+    while True:
+        try:
+            logging.info("Starting the bot...")
+            await client.start(TOKEN)
+            break  # Exit the loop if successful
+        except discord.HTTPException as e:
+            if e.status == 429:
+                retry_after = int(e.response.headers.get("Retry-After", 1)) / 1000
+                logging.critical(f"Rate limit hit during bot start! Retrying after {retry_after} seconds.")
+                await asyncio.sleep(retry_after)
+            else:
+                logging.critical(f"Discord API error while starting the bot: {e}")
+                break
+        except Exception as e:
+            logging.critical(f"Critical error while starting the bot: {e}")
+            break
+
+
 if __name__ == "__main__":
     try:
-        logging.info("Starting the bot...")
-        client.run(TOKEN)
-    except discord.HTTPException as e:
-        if e.status == 429:
-            retry_after = int(e.response.headers.get("Retry-After", 1)) / 1000
-            logging.critical(f"Rate limit hit during bot start! Retrying after {retry_after} seconds.")
-            asyncio.run(asyncio.sleep(retry_after))
-            client.run(TOKEN)
-        else:
-            logging.critical(f"Discord API error while starting the bot: {e}")
+        asyncio.run(start_bot())
     except Exception as e:
-        logging.critical(f"Critical error while starting the bot: {e}")
+        logging.critical(f"Unhandled error during bot initialization: {e}")
