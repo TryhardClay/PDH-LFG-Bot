@@ -10,6 +10,7 @@ from discord.ext import commands
 from discord.ext.commands import has_permissions
 from discord.ui import Button, View
 from cachetools import TTLCache
+from datetime import datetime, timedelta
 
 # -------------------------------------------------------------------------
 # Setup and Configuration
@@ -81,6 +82,21 @@ client = commands.Bot(command_prefix='/', intents=intents)
 # Global variable to keep track of the main message handling task
 message_relay_task = None
 
+# Initialize RateLimiter and PauseManager
+rate_limiter = RateLimiter(max_requests=50, period=1)  # Adjust to Discord limits
+pause_manager = PauseManager(violation_threshold=5, pause_duration=30)
+
+async def send_webhook_message_with_limits(webhook_url, content=None, embeds=None):
+    try:
+        await rate_limiter.acquire()  # Ensure we respect rate limits
+        await send_webhook_message(webhook_url, content, embeds)  # Your original function
+    except discord.HTTPException as e:
+        if e.status == 429:  # Rate limit error
+            logging.error("Rate limit exceeded!")
+            await pause_manager.handle_violation()
+        else:
+            raise
+
 # -------------------------------------------------------------------------
 # Webhook Functions
 # -------------------------------------------------------------------------
@@ -145,7 +161,57 @@ def save_channel_filters():
 # Gateway Functions (Text Messages and BigLFG Embeds)
 # -------------------------------------------------------------------------
 
-# Text Message Relay
+class RateLimiter:
+    def __init__(self, max_requests: int, period: float):
+        """
+        Initialize a rate limiter.
+        :param max_requests: Maximum number of requests allowed.
+        :param period: Time period (in seconds) for the rate limit.
+        """
+        self.max_requests = max_requests
+        self.period = period
+        self.requests = asyncio.Queue()
+        self.lock = asyncio.Lock()
+
+    async def acquire(self):
+        async with self.lock:
+            now = datetime.now()
+            while not self.requests.empty():
+                if (now - self.requests.queue[0]).total_seconds() > self.period:
+                    await self.requests.get()
+                else:
+                    break
+
+            if self.requests.qsize() >= self.max_requests:
+                wait_time = self.period - (now - self.requests.queue[0]).total_seconds()
+                logging.warning(f"Rate limit reached. Pausing for {wait_time:.2f} seconds.")
+                await asyncio.sleep(wait_time)
+
+            await self.requests.put(now)
+class PauseManager:
+    def __init__(self, violation_threshold: int, pause_duration: int):
+        """
+        Initialize the pause manager.
+        :param violation_threshold: Number of rate limit violations to trigger a pause.
+        :param pause_duration: Duration (in seconds) of the pause.
+        """
+        self.violation_threshold = violation_threshold
+        self.pause_duration = pause_duration
+        self.violations = 0
+        self.last_violation_time = datetime.now()
+
+    async def handle_violation(self):
+        now = datetime.now()
+        if (now - self.last_violation_time).total_seconds() > 60:
+            self.violations = 0  # Reset violations after 1 minute
+        self.violations += 1
+        self.last_violation_time = now
+
+        if self.violations >= self.violation_threshold:
+            logging.critical(f"Too many rate limit violations! Pausing for {self.pause_duration} seconds.")
+            await asyncio.sleep(self.pause_duration)
+            self.violations = 0
+
 # Text Message Relay
 async def relay_text_message(source_message, destination_channel):
     """
