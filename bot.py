@@ -489,7 +489,7 @@ async def on_message_delete(message):
 @client.event
 async def on_reaction_add(reaction, user):
     """
-    Propagate reactions across all relayed copies of a message.
+    Propagate reactions across all relayed copies of a message and the original message.
     """
     if user.bot:
         return  # Ignore bot reactions
@@ -497,36 +497,37 @@ async def on_reaction_add(reaction, user):
     try:
         logging.info(f"Reaction {reaction.emoji} added by {user.name} in channel {reaction.message.channel.id}")
 
-        # Check if the message is in the message_map
+        # Locate the original message ID and all related relayed messages
         for original_id, mappings in message_map.items():
-            for target_channel_id, target_message_id in mappings:
-                if reaction.message.id == target_message_id:  # Match found
-                    logging.info(f"Match found for message ID: {target_message_id} (Original ID: {original_id})")
+            for relay_channel_id, relay_message_id in mappings:
+                if reaction.message.id == relay_message_id or reaction.message.id == int(original_id):  # Match found
+                    logging.info(f"Match found for message ID: {reaction.message.id} (Original ID: {original_id})")
 
-                    # Propagate the reaction to all relayed messages and the original message
-                    for relay_channel_id, relay_message_id in mappings:
+                    # Propagate the reaction to all relayed messages (avoid duplicate reactions)
+                    for target_channel_id, target_message_id in mappings:
+                        if target_message_id != reaction.message.id:  # Skip the triggering message
+                            try:
+                                target_channel = client.get_channel(target_channel_id)
+                                if not target_channel:
+                                    logging.warning(f"Channel {target_channel_id} not accessible. Skipping.")
+                                    continue
+
+                                target_message = await target_channel.fetch_message(target_message_id)
+                                await target_message.add_reaction(reaction.emoji)
+                                logging.info(f"Propagated reaction {reaction.emoji} to message ID: {target_message_id} in channel {target_channel_id}")
+
+                            except Exception as e:
+                                logging.error(f"Error propagating reaction {reaction.emoji} to message ID: {target_message_id} in channel {target_channel_id}: {e}")
+
+                    # Add reaction to the original message if the current message is a relayed one
+                    if reaction.message.id != int(original_id):
                         try:
-                            relay_channel = client.get_channel(relay_channel_id)
-                            if not relay_channel:
-                                logging.warning(f"Channel {relay_channel_id} not accessible. Skipping.")
-                                continue
-
-                            relay_message = await relay_channel.fetch_message(relay_message_id)
-                            await relay_message.add_reaction(reaction.emoji)
-                            logging.info(f"Propagated reaction {reaction.emoji} to message ID: {relay_message_id} in channel {relay_channel_id}")
-
-                        except Exception as e:
-                            logging.error(f"Error propagating reaction {reaction.emoji} to message ID: {relay_message_id} in channel {relay_channel_id}: {e}")
-
-                    # Also propagate to the original message
-                    try:
-                        original_channel = client.get_channel(int(reaction.message.guild.id))
-                        if original_channel:
-                            original_message = await original_channel.fetch_message(original_id)
+                            original_channel = client.get_channel(int(relay_channel_id))
+                            original_message = await original_channel.fetch_message(int(original_id))
                             await original_message.add_reaction(reaction.emoji)
                             logging.info(f"Propagated reaction {reaction.emoji} to original message ID: {original_id} in channel {original_channel.id}")
-                    except Exception as e:
-                        logging.error(f"Error propagating reaction to the original message ID {original_id}: {e}")
+                        except Exception as e:
+                            logging.error(f"Error propagating reaction to the original message ID {original_id}: {e}")
 
                     return  # Exit after processing the match
 
