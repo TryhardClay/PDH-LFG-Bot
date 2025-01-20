@@ -250,17 +250,19 @@ async def propagate_text_edit(before, after):
         logging.info(f"Processing edit for message ID: {before.id}")
         for unique_id, data in relayed_text_messages.items():
             if data["original_message"].id == before.id:
-                # Apply edit to the relayed message
-                relayed_message = data["relayed_message"]
-                await relayed_message.edit(content=f"{after.author.name} (from {after.guild.name}) said:\n{after.content}")
-                logging.info(f"Message edit propagated: {before.content} -> {after.content}")
-                break
-        else:
-            logging.warning(f"Original message {before.id} not found in relayed_text_messages. Cannot propagate edits.")
+                try:
+                    # Apply edit to the relayed message
+                    relayed_message = data["relayed_message"]
+                    await relayed_message.edit(content=f"{after.author.name} (from {after.guild.name}) said:\n{after.content}")
+                    logging.info(f"Message edit propagated: {before.content} -> {after.content}")
+                except Exception as e:
+                    logging.error(f"Error propagating edit to channel {relayed_message.channel.id}: {e}")
+                return  # Exit after handling the edit for the matching message
+        logging.warning(f"Original message {before.id} not found in relayed_text_messages. Cannot propagate edits.")
+
     except Exception as e:
         logging.error(f"Error in propagate_text_edit: {e}")
 
-# Text Message Reaction Propagation
 # Text Message Reaction Propagation
 async def propagate_reaction_add(reaction, user):
     """
