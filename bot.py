@@ -503,7 +503,7 @@ async def on_reaction_add(reaction, user):
                 if reaction.message.id == relay_message_id or reaction.message.id == int(original_id):  # Match found
                     logging.info(f"Match found for message ID: {reaction.message.id} (Original ID: {original_id})")
 
-                    # Propagate the reaction to all relayed messages (avoid duplicate reactions)
+                    # Propagate the reaction to all relayed messages
                     for target_channel_id, target_message_id in mappings:
                         if target_message_id != reaction.message.id:  # Skip the triggering message
                             try:
@@ -519,13 +519,19 @@ async def on_reaction_add(reaction, user):
                             except Exception as e:
                                 logging.error(f"Error propagating reaction {reaction.emoji} to message ID: {target_message_id} in channel {target_channel_id}: {e}")
 
-                    # Add reaction to the original message if the current message is a relayed one
+                    # Add reaction to the original message if current message is a relayed one
                     if reaction.message.id != int(original_id):
                         try:
                             original_channel = client.get_channel(int(relay_channel_id))
+                            if not original_channel:
+                                logging.warning(f"Original channel {relay_channel_id} not accessible. Skipping.")
+                                continue
+
                             original_message = await original_channel.fetch_message(int(original_id))
                             await original_message.add_reaction(reaction.emoji)
                             logging.info(f"Propagated reaction {reaction.emoji} to original message ID: {original_id} in channel {original_channel.id}")
+                        except discord.NotFound:
+                            logging.warning(f"Original message {original_id} not found. Skipping reaction propagation to it.")
                         except Exception as e:
                             logging.error(f"Error propagating reaction to the original message ID {original_id}: {e}")
 
