@@ -276,11 +276,16 @@ async def propagate_reaction_add(reaction, user):
     try:
         logging.info(f"Processing reaction {reaction.emoji} for message ID: {reaction.message.id}")
 
+        # Enhanced debugging: log the structure of relayed_text_messages
+        logging.debug(f"Current relayed_text_messages: {json.dumps({k: {'original_message_id': v['original_message'].id, 'relayed_message_id': v['relayed_message'].id} for k, v in relayed_text_messages.items()}, indent=4)}")
+
         # Find the original message or relayed copy that matches the reacted message
+        found = False
         for unique_id, data in relayed_text_messages.items():
             if (data["original_message"].id == reaction.message.id or
                     data["relayed_message"].id == reaction.message.id):
                 
+                found = True
                 # Get the original message ID to ensure all related copies are updated
                 original_message_id = data["original_message"].id
 
@@ -303,7 +308,8 @@ async def propagate_reaction_add(reaction, user):
                         except Exception as e:
                             logging.error(f"Error propagating reaction to channel {relayed_message.channel.id}: {e}")
                 break  # Exit after processing the relevant message and copies
-        else:
+
+        if not found:
             logging.warning(f"Message {reaction.message.id} not found in relayed_text_messages. Cannot propagate reactions.")
     except Exception as e:
         logging.error(f"Error in propagate_reaction_add: {e}")
