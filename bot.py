@@ -268,7 +268,7 @@ async def propagate_text_edit(before, after):
 async def propagate_reaction_add(reaction, user):
     """
     Handle and propagate reactions added to text messages across servers.
-    Ensures reactions propagate to all relayed copies of the original message.
+    Ensures reactions propagate to all relayed copies of a message.
     """
     if user.bot:
         return  # Ignore bot reactions
@@ -276,30 +276,33 @@ async def propagate_reaction_add(reaction, user):
     try:
         logging.info(f"Processing reaction {reaction.emoji} for message ID: {reaction.message.id}")
 
-        # Find all relayed copies for the original message
+        # Find the original message or relayed copy that matches the reacted message
         for unique_id, data in relayed_text_messages.items():
-            # Check if the reaction is added to the original message or a relayed copy
             if (data["original_message"].id == reaction.message.id or
                     data["relayed_message"].id == reaction.message.id):
                 
-                # Propagate the reaction to all relayed copies
+                # Get the original message ID to ensure all related copies are updated
+                original_message_id = data["original_message"].id
+
+                # Propagate the reaction to all relayed copies, including the original
                 for copy_unique_id, copy_data in relayed_text_messages.items():
-                    relayed_message = copy_data["relayed_message"]
-                    try:
-                        target_message = await relayed_message.channel.fetch_message(relayed_message.id)
-                        await target_message.add_reaction(reaction.emoji)
-                        logging.info(f"Reaction {reaction.emoji} propagated to message in channel {relayed_message.channel.id}")
-                    except discord.HTTPException as e:
-                        if e.status == 429:  # Rate limit handling
-                            retry_after = int(e.response.headers.get("Retry-After", 1)) / 1000
-                            logging.warning(f"Rate limit hit while adding reaction! Retrying after {retry_after} seconds.")
-                            await asyncio.sleep(retry_after)
+                    if copy_data["original_message"].id == original_message_id:
+                        relayed_message = copy_data["relayed_message"]
+                        try:
+                            target_message = await relayed_message.channel.fetch_message(relayed_message.id)
                             await target_message.add_reaction(reaction.emoji)
-                        else:
-                            logging.error(f"Discord API error while propagating reaction: {e}")
-                    except Exception as e:
-                        logging.error(f"Error propagating reaction to channel {relayed_message.channel.id}: {e}")
-                break  # Exit after handling the reaction for the matching message
+                            logging.info(f"Reaction {reaction.emoji} propagated to message in channel {relayed_message.channel.id}")
+                        except discord.HTTPException as e:
+                            if e.status == 429:  # Rate limit handling
+                                retry_after = int(e.response.headers.get("Retry-After", 1)) / 1000
+                                logging.warning(f"Rate limit hit while adding reaction! Retrying after {retry_after} seconds.")
+                                await asyncio.sleep(retry_after)
+                                await target_message.add_reaction(reaction.emoji)
+                            else:
+                                logging.error(f"Discord API error while propagating reaction: {e}")
+                        except Exception as e:
+                            logging.error(f"Error propagating reaction to channel {relayed_message.channel.id}: {e}")
+                break  # Exit after processing the relevant message and copies
         else:
             logging.warning(f"Message {reaction.message.id} not found in relayed_text_messages. Cannot propagate reactions.")
     except Exception as e:
