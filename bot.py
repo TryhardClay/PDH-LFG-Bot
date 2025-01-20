@@ -258,6 +258,7 @@ async def propagate_text_edit(before, after):
                 except Exception as e:
                     logging.error(f"Error propagating edit to channel {relayed_message.channel.id}: {e}")
                 return  # Exit after handling the edit for the matching message
+        # If loop completes without finding a match
         logging.warning(f"Original message {before.id} not found in relayed_text_messages. Cannot propagate edits.")
 
     except Exception as e:
