@@ -497,13 +497,12 @@ async def on_reaction_add(reaction, user):
     try:
         logging.info(f"Reaction {reaction.emoji} added by {user.name} in channel {reaction.message.channel.id}")
 
-        # Iterate over all entries in the message_map
+        # Check if the message ID matches any relayed messages in the map
         for original_id, mappings in message_map.items():
-            # Check if the reacted message is one of the relayed messages
-            if any(relayed_message_id == reaction.message.id for _, relayed_message_id in mappings):
+            if reaction.message.id in [relayed_id for _, relayed_id in mappings]:
                 logging.info(f"Match found for message ID: {reaction.message.id} (Original ID: {original_id})")
 
-                # Propagate the reaction to all copies of the original message
+                # Propagate the reaction to all relayed messages under this original message
                 for target_channel_id, target_message_id in mappings:
                     try:
                         channel = client.get_channel(target_channel_id)
@@ -512,15 +511,16 @@ async def on_reaction_add(reaction, user):
                             continue
 
                         target_message = await channel.fetch_message(target_message_id)
-                        await target_message.add_reaction(reaction.emoji)
-                        logging.info(f"Propagated reaction {reaction.emoji} to message ID: {target_message_id} in channel {target_channel_id}")
+                        if reaction.message.id != target_message.id:  # Avoid duplicating reaction on the same message
+                            await target_message.add_reaction(reaction.emoji)
+                            logging.info(f"Propagated reaction {reaction.emoji} to message ID: {target_message_id} in channel {target_channel_id}")
 
                     except Exception as e:
                         logging.error(f"Error propagating reaction {reaction.emoji} to message ID: {target_message_id} in channel {target_channel_id}: {e}")
 
-                return  # Exit after propagating the reaction to all copies of the message
+                return  # Exit after processing the match
 
-        logging.warning(f"Original message {reaction.message.id} not found in message_map. Cannot propagate reactions.")
+        logging.warning(f"Message ID {reaction.message.id} not found in message_map. Cannot propagate reactions.")
     except Exception as e:
         logging.error(f"Error in on_reaction_add: {e}")
 
