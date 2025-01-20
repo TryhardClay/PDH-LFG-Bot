@@ -226,7 +226,12 @@ async def relay_text_message(source_message, destination_channel):
             "original_message": source_message,
             "relayed_message": relayed_message,
         }
-        logging.info(f"Relayed text message to channel {destination_channel.id} with unique_id: {unique_id}")
+
+        # Add logging here
+        logging.info(
+            f"Relayed text message logged: Original ID: {source_message.id}, "
+            f"Relayed ID: {relayed_message.id}, Unique ID: {unique_id}"
+        )
 
         return unique_id
     except discord.HTTPException as e:
@@ -505,39 +510,26 @@ async def on_message_delete(message):
 @client.event
 async def on_reaction_add(reaction, user):
     """
-    Propagates reactions across all relayed copies of a message to maintain consistency.
-    Now uses distinct logic and includes rate-limit handling.
+    Handles reactions and propagates them across all relayed copies of the message.
     """
     if user.bot:
         return  # Ignore bot reactions
 
     try:
         logging.info(f"Processing reaction {reaction.emoji} for message ID: {reaction.message.id}")
+        logging.debug(f"Current relayed_text_messages: {relayed_text_messages}")
 
         for unique_id, data in relayed_text_messages.items():
-            if data["original_message"].id == reaction.message.id:
-                # Propagate the reaction to the relayed copy
+            if reaction.message.id in (data["original_message"].id, data["relayed_message"].id):
+                logging.info(f"Match found for message ID: {reaction.message.id}")
+                # Propagate reaction
                 relayed_message = data["relayed_message"]
+                target_message = await relayed_message.channel.fetch_message(relayed_message.id)
+                await target_message.add_reaction(reaction.emoji)
+                logging.info(f"Propagated reaction {reaction.emoji} to relayed message in channel {relayed_message.channel.id}")
+                return
 
-                # Introduce a small delay to prevent rate-limiting
-                await asyncio.sleep(RATE_LIMIT_DELAY)
-
-                try:
-                    # Fetch the relayed message and add the reaction
-                    target_message = await relayed_message.channel.fetch_message(relayed_message.id)
-                    await target_message.add_reaction(reaction.emoji)
-                    logging.info(f"Reaction {reaction.emoji} propagated to relayed message in channel {relayed_message.channel.id}")
-                except discord.HTTPException as e:
-                    if e.status == 429:
-                        retry_after = int(e.response.headers.get("Retry-After", 1)) / 1000
-                        logging.warning(f"Rate limit hit while adding reaction! Retrying after {retry_after} seconds.")
-                        await asyncio.sleep(retry_after)
-                        await target_message.add_reaction(reaction.emoji)
-                    else:
-                        logging.error(f"Discord API error while propagating reaction: {e}")
-                break
-        else:
-            logging.warning(f"Original message {reaction.message.id} not found in relayed_text_messages. Cannot propagate reactions.")
+        logging.warning(f"Message ID: {reaction.message.id} not found in relayed_text_messages. Cannot propagate reactions.")
     except Exception as e:
         logging.error(f"Error in on_reaction_add: {e}")
 
