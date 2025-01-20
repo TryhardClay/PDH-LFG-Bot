@@ -272,7 +272,7 @@ async def propagate_text_edit(before, after):
 # Text Message Reaction Propagation
 async def propagate_reaction_add(reaction, user):
     """
-    Handle and propagate reactions added to text messages across all instances of the message.
+    Handle and propagate reactions added to all instances of a message (original + relayed copies).
     """
     try:
         if user.bot:
@@ -280,35 +280,30 @@ async def propagate_reaction_add(reaction, user):
 
         logging.info(f"Processing reaction {reaction.emoji} for message ID: {reaction.message.id}")
 
-        # Find the original message and all linked relayed messages
         for unique_id, data in relayed_text_messages.items():
-            all_message_ids = [
-                data["original_message"].id,
-                data["relayed_message"].id
-            ]
-
-            if reaction.message.id in all_message_ids:
+            # Check if the reaction is on the original or a relayed message
+            if reaction.message.id in {data["original_message"].id, data["relayed_message"].id}:
                 logging.info(f"Match found for message ID: {reaction.message.id}")
 
-                # Propagate the reaction to all instances of the message
-                for message_id in all_message_ids:
-                    # Skip adding a reaction to the message that already has it
-                    if message_id == reaction.message.id:
-                        continue
+                # Add the reaction to both original and relayed messages
+                try:
+                    # Add reaction to the original message
+                    if reaction.message.id != data["original_message"].id:
+                        original_channel = reaction.message.guild.get_channel(data["original_message"].channel.id)
+                        original_message = await original_channel.fetch_message(data["original_message"].id)
+                        await original_message.add_reaction(reaction.emoji)
+                        logging.info(f"Propagated reaction {reaction.emoji} to original message ID: {data['original_message'].id}")
 
-                    # Fetch the message and add the reaction
-                    if message_id == data["original_message"].id:
-                        target_message = await reaction.message.guild.get_channel(reaction.message.channel.id).fetch_message(message_id)
-                    else:
-                        target_message = await data["relayed_message"].channel.fetch_message(message_id)
+                    # Add reaction to the relayed message
+                    if reaction.message.id != data["relayed_message"].id:
+                        relayed_message = await data["relayed_message"].channel.fetch_message(data["relayed_message"].id)
+                        await relayed_message.add_reaction(reaction.emoji)
+                        logging.info(f"Propagated reaction {reaction.emoji} to relayed message ID: {data['relayed_message'].id}")
 
-                    try:
-                        await target_message.add_reaction(reaction.emoji)
-                        logging.info(f"Propagated reaction {reaction.emoji} to message ID: {message_id}")
-                    except Exception as e:
-                        logging.error(f"Error adding reaction {reaction.emoji} to message ID: {message_id}: {e}")
+                except Exception as e:
+                    logging.error(f"Error propagating reaction {reaction.emoji} to message instances: {e}")
 
-                return  # Exit after propagating the reaction to all linked instances
+                return  # Exit after handling the reaction for the matching message
 
         logging.warning(f"Message ID {reaction.message.id} not found in relayed_text_messages. Cannot propagate reactions.")
 
