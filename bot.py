@@ -26,7 +26,7 @@ relayed_text_messages = TTLCache(maxsize=10000, ttl=24 * 60 * 60)  # Max size, T
 RATE_LIMIT_DELAY = 0.5  # Default delay between API calls to prevent spamming
 
 # Map to track all instances of a message (original + relayed copies)
-message_map = {}
+message_map = {}  # Format: {original_message_id: [(channel_id, message_id), ...]}
 
 # BigLFG Embed Tracking
 active_embeds = {}  # Independently managed
@@ -217,6 +217,9 @@ async def relay_text_message(source_message, destination_channel):
             f"{source_message.content}"
         )
 
+        # Introduce a small delay to avoid spamming API
+        await asyncio.sleep(RATE_LIMIT_DELAY)
+
         # Send message to destination channel
         relayed_message = await destination_channel.send(content=formatted_content)
 
@@ -227,16 +230,14 @@ async def relay_text_message(source_message, destination_channel):
             "relayed_message": relayed_message,
         }
 
-        # Update message_map with all instances
         original_id = source_message.id
         if original_id not in message_map:
-            message_map[original_id] = set()
-        message_map[original_id].add(source_message.id)
-        message_map[original_id].add(relayed_message.id)
+            message_map[original_id] = []
+        message_map[original_id].append((destination_channel.id, relayed_message.id))
 
-        logging.info(f"Relayed text message logged: Original ID: {source_message.id}, "
-                     f"Relayed ID: {relayed_message.id}, Unique ID: {unique_id}")
+        logging.info(f"Updated message_map: {json.dumps(message_map, indent=4)}")
 
+        logging.info(f"Relayed text message to channel {destination_channel.id} with unique_id: {unique_id}")
         return unique_id
     except Exception as e:
         logging.error(f"Error relaying text message to channel {destination_channel.id}: {e}")
@@ -268,35 +269,32 @@ async def propagate_text_edit(before, after):
 # Text Message Reaction Propagation
 async def propagate_reaction_add(reaction, user):
     """
-    Handle and propagate reactions added to all instances of a message (original + relayed copies).
+    Handle and propagate reactions added to text messages across servers with rate-limit handling.
     """
     try:
         if user.bot:
             return  # Ignore bot reactions
 
-        logging.info(f"Processing reaction {reaction.emoji} for message ID: {reaction.message.id}")
+        for original_id, mappings in message_map.items():
+            for channel_id, relayed_message_id in mappings:
+                if relayed_message_id == reaction.message.id:
+                    logging.info(f"Match found for message ID: {reaction.message.id}")
 
-        # Find all instances of the message in message_map
-        for original_id, message_ids in message_map.items():
-            if reaction.message.id in message_ids:
-                logging.info(f"Match found for message ID: {reaction.message.id}. Propagating reaction...")
+                    # Fetch the relayed message and add the reaction
+                    channel = client.get_channel(channel_id)
+                    if not channel:
+                        logging.error(f"Channel {channel_id} could not be fetched.")
+                        continue
 
-                # Propagate the reaction to all instances
-                for message_id in message_ids:
-                    if message_id != reaction.message.id:  # Skip the message where the reaction originated
-                        try:
-                            # Fetch the message and add the reaction
-                            channel = reaction.message.guild.get_channel(reaction.message.channel.id)
-                            target_message = await channel.fetch_message(message_id)
-                            await target_message.add_reaction(reaction.emoji)
-                            logging.info(f"Propagated reaction {reaction.emoji} to message ID: {message_id}")
-                        except Exception as e:
-                            logging.error(f"Error propagating reaction {reaction.emoji} to message ID: {message_id}: {e}")
-
-                return  # Exit after processing the match
-
-        logging.warning(f"Message ID {reaction.message.id} not found in message_map. Cannot propagate reactions.")
-
+                    target_message = await channel.fetch_message(relayed_message_id)
+                    await target_message.add_reaction(reaction.emoji)
+                    logging.info(f"Propagated reaction {reaction.emoji} to relayed message in channel {channel.id}")
+                    break
+            else:
+                continue
+            break
+        else:
+            logging.warning(f"Original message {reaction.message.id} not found in message_map. Cannot propagate reactions.")
     except Exception as e:
         logging.error(f"Error in propagate_reaction_add: {e}")
 
@@ -491,26 +489,34 @@ async def on_message_delete(message):
 @client.event
 async def on_reaction_add(reaction, user):
     """
-    Handles reactions and propagates them across all relayed copies of the message.
+    Propagates reactions across all relayed copies of a message to maintain consistency.
     """
     if user.bot:
         return  # Ignore bot reactions
 
     try:
-        logging.info(f"Processing reaction {reaction.emoji} for message ID: {reaction.message.id}")
-        logging.debug(f"Current relayed_text_messages: {relayed_text_messages}")
+        logging.info(f"Reaction {reaction.emoji} added by {user.name} in channel {reaction.message.channel.id}")
 
-        for unique_id, data in relayed_text_messages.items():
-            if reaction.message.id in (data["original_message"].id, data["relayed_message"].id):
-                logging.info(f"Match found for message ID: {reaction.message.id}")
-                # Propagate reaction
-                relayed_message = data["relayed_message"]
-                target_message = await relayed_message.channel.fetch_message(relayed_message.id)
-                await target_message.add_reaction(reaction.emoji)
-                logging.info(f"Propagated reaction {reaction.emoji} to relayed message in channel {relayed_message.channel.id}")
-                return
+        for original_id, mappings in message_map.items():
+            for channel_id, relayed_message_id in mappings:
+                if relayed_message_id == reaction.message.id:
+                    logging.info(f"Match found for message ID: {reaction.message.id}")
 
-        logging.warning(f"Message ID: {reaction.message.id} not found in relayed_text_messages. Cannot propagate reactions.")
+                    # Fetch the relayed message and add the reaction
+                    channel = client.get_channel(channel_id)
+                    if not channel:
+                        logging.error(f"Channel {channel_id} could not be fetched.")
+                        continue
+
+                    target_message = await channel.fetch_message(relayed_message_id)
+                    await target_message.add_reaction(reaction.emoji)
+                    logging.info(f"Propagated reaction {reaction.emoji} to relayed message in channel {channel.id}")
+                    break
+            else:
+                continue
+            break
+        else:
+            logging.warning(f"Original message {reaction.message.id} not found in message_map. Cannot propagate reactions.")
     except Exception as e:
         logging.error(f"Error in on_reaction_add: {e}")
 
