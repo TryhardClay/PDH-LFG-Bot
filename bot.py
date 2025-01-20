@@ -522,9 +522,9 @@ async def on_reaction_add(reaction, user):
                     # Add reaction to the original message if current message is a relayed one
                     if reaction.message.id != int(original_id):
                         try:
-                            original_channel = client.get_channel(int(relay_channel_id))
+                            original_channel = client.get_channel(mappings[0][0])  # Use the first relay mapping
                             if not original_channel:
-                                logging.warning(f"Original channel {relay_channel_id} not accessible. Skipping.")
+                                logging.warning(f"Original channel {mappings[0][0]} not accessible. Skipping.")
                                 continue
 
                             original_message = await original_channel.fetch_message(int(original_id))
