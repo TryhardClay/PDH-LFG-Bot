@@ -267,33 +267,41 @@ async def propagate_text_edit(before, after):
 # Text Message Reaction Propagation
 async def propagate_reaction_add(reaction, user):
     """
-    Handle and propagate reactions added to text messages across servers with rate-limit handling.
+    Handle and propagate reactions added to text messages across servers.
+    Ensures reactions propagate to all relayed copies of the original message.
     """
+    if user.bot:
+        return  # Ignore bot reactions
+
     try:
-        if user.bot:
-            return  # Ignore bot reactions
+        logging.info(f"Processing reaction {reaction.emoji} for message ID: {reaction.message.id}")
 
+        # Find all relayed copies for the original message
         for unique_id, data in relayed_text_messages.items():
-            if data["original_message"].id == reaction.message.id:
-                # Introduce a small delay to prevent spamming the API
-                await asyncio.sleep(0.5)
-
-                # Propagate the reaction to the relayed copy
-                relayed_message = data["relayed_message"]
-                target_message = await relayed_message.channel.fetch_message(relayed_message.id)
-                await target_message.add_reaction(reaction.emoji)
-                logging.info(f"Propagated reaction {reaction.emoji} to channel {relayed_message.channel.id}")
-                break
+            # Check if the reaction is added to the original message or a relayed copy
+            if (data["original_message"].id == reaction.message.id or
+                    data["relayed_message"].id == reaction.message.id):
+                
+                # Propagate the reaction to all relayed copies
+                for copy_unique_id, copy_data in relayed_text_messages.items():
+                    relayed_message = copy_data["relayed_message"]
+                    try:
+                        target_message = await relayed_message.channel.fetch_message(relayed_message.id)
+                        await target_message.add_reaction(reaction.emoji)
+                        logging.info(f"Reaction {reaction.emoji} propagated to message in channel {relayed_message.channel.id}")
+                    except discord.HTTPException as e:
+                        if e.status == 429:  # Rate limit handling
+                            retry_after = int(e.response.headers.get("Retry-After", 1)) / 1000
+                            logging.warning(f"Rate limit hit while adding reaction! Retrying after {retry_after} seconds.")
+                            await asyncio.sleep(retry_after)
+                            await target_message.add_reaction(reaction.emoji)
+                        else:
+                            logging.error(f"Discord API error while propagating reaction: {e}")
+                    except Exception as e:
+                        logging.error(f"Error propagating reaction to channel {relayed_message.channel.id}: {e}")
+                break  # Exit after handling the reaction for the matching message
         else:
-            logging.warning(f"Original message {reaction.message.id} not found in relayed_text_messages. Cannot propagate reactions.")
-    except discord.HTTPException as e:
-        if e.status == 429:
-            retry_after = int(e.response.headers.get("Retry-After", 1)) / 1000  # Convert milliseconds to seconds
-            logging.warning(f"Rate limit hit! Retrying after {retry_after} seconds.")
-            await asyncio.sleep(retry_after)
-            return await propagate_reaction_add(reaction, user)
-        else:
-            logging.error(f"Discord API error while propagating reaction: {e}")
+            logging.warning(f"Message {reaction.message.id} not found in relayed_text_messages. Cannot propagate reactions.")
     except Exception as e:
         logging.error(f"Error in propagate_reaction_add: {e}")
 
