@@ -344,39 +344,27 @@ async def update_embeds(lfg_uuid):
         data = active_embeds[lfg_uuid]
         players = data["players"]
 
-        # Construct player list
         player_list = "\n".join([f"{i + 1}. {name}" for i, name in enumerate(players.values())]) if players else "Empty"
 
-        # Determine embed updates based on player count
-        title = "Your game is ready!" if len(players) == 4 else "Looking for more players..."
-        color = discord.Color.green() if len(players) == 4 else discord.Color.yellow()
-        description = "Click this link to join your game." if len(players) == 4 else f"React below ({4 - len(players)} players needed)"
-
-        # Update embeds in all channels
         for channel_id, message in data["messages"].items():
             try:
                 embed = discord.Embed(
-                    title=title,
-                    color=color,
-                    description=description,
+                    title="Looking for more players..." if len(players) < 4 else "Your game is ready!",
+                    color=discord.Color.yellow() if len(players) < 4 else discord.Color.green(),
+                    description=f"React below ({4 - len(players)} players needed)"
+                    if len(players) < 4
+                    else "Click this link to join your game."
                 )
                 embed.add_field(name="Players:", value=player_list, inline=False)
-                # Remove buttons if the game is ready
-                view = None if len(players) == 4 else create_lfg_view()
-                await message.edit(embed=embed, view=view)
+                
+                # Add the image to the embed
+                embed.set_image(url="https://raw.githubusercontent.com/TryhardClay/PDH-LFG-Bot/f505c8af9b5261e3b1ba6c9339c9b7cee53a7a7c/PDHBot.jpg")
+
+                await message.edit(embed=embed, view=None if len(players) >= 4 else create_lfg_view())
             except Exception as e:
                 logging.error(f"Error updating embed in channel {channel_id} for LFG UUID {lfg_uuid}: {e}")
-
-        # Cancel timeout task if the game is ready
-        if len(players) == 4:
-            task = data.get("task")
-            if task and not task.done():
-                task.cancel()
-                logging.info(f"Timeout task for LFG UUID {lfg_uuid} canceled as the game is ready.")
-
     except Exception as e:
         logging.error(f"Error in update_embeds for LFG UUID {lfg_uuid}: {e}")
-
 # Helper to Create BigLFG View
 def create_lfg_view():
     """
@@ -402,33 +390,6 @@ def create_lfg_view():
         if user_id not in active_embeds[lfg_uuid]["players"]:
             active_embeds[lfg_uuid]["players"][user_id] = display_name
             await update_embeds(lfg_uuid)
-
-            # If the player count reaches four, cancel the timeout and lock the embed
-            if len(active_embeds[lfg_uuid]["players"]) == 4:
-                task = active_embeds[lfg_uuid].get("task")
-                if task and not task.done():
-                    task.cancel()
-                    logging.info(f"Timeout task canceled for LFG UUID {lfg_uuid} as the player count reached four.")
-
-                # Update the embed to reflect the game is ready
-                for channel_id, message in active_embeds[lfg_uuid]["messages"].items():
-                    try:
-                        embed = discord.Embed(
-                            title="Your game is ready!",
-                            color=discord.Color.green(),
-                            description="Click this link to join your game.",
-                        )
-                        embed.add_field(
-                            name="Players:",
-                            value="\n".join(
-                                [f"{i + 1}. {name}" for i, name in enumerate(active_embeds[lfg_uuid]["players"].values())]
-                            ),
-                            inline=False,
-                        )
-                        await message.edit(embed=embed, view=None)
-                        logging.info(f"Updated embed in channel {channel_id} for LFG UUID {lfg_uuid}")
-                    except Exception as e:
-                        logging.error(f"Error updating embed in channel {channel_id}: {e}")
 
         await button_interaction.response.defer()
 
@@ -469,7 +430,7 @@ def create_lfg_view():
     view.add_item(leave_button)
 
     return view
-
+    
 # Helper for timeout handling of BigLFG requests
 async def lfg_timeout(lfg_uuid):
     """
