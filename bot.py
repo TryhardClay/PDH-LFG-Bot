@@ -359,13 +359,12 @@ async def update_embeds(lfg_uuid):
                 )
                 embed.set_author(
                     name="PDH LFG Bot",
-                    icon_url=IMAGE_URL,  # Use the image in the author section
-                    url="https://github.com/TryhardClay/PDH-LFG-Bot"  # Optional link for additional reference
+                    icon_url=IMAGE_URL,  # Include the image in the author section
+                    url="https://github.com/TryhardClay/PDH-LFG-Bot"
                 )
-                embed.add_field(name="Players:", value=player_list, inline=False)
-
                 if not is_game_ready:
-                    embed.set_thumbnail(url=IMAGE_URL)  # Include thumbnail only when game isn't ready
+                    embed.set_thumbnail(url=IMAGE_URL)  # Retain thumbnail until the game is ready
+                embed.add_field(name="Players:", value=player_list, inline=False)
 
                 await message.edit(embed=embed)
 
@@ -801,12 +800,18 @@ async def biglfg(interaction: discord.Interaction):
         source_channel_id = f'{interaction.guild.id}_{interaction.channel.id}'
         source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
 
-        # Create the embed
+        # Create the initial embed
         embed = discord.Embed(
             title="Looking for more players...",
             color=discord.Color.yellow(),
             description="React below to join the game!",
         )
+        embed.set_author(
+            name="PDH LFG Bot",
+            icon_url=IMAGE_URL,  # Add the image to the author section
+            url="https://github.com/TryhardClay/PDH-LFG-Bot"
+        )
+        embed.set_thumbnail(url=IMAGE_URL)  # Add the image as a thumbnail
         embed.add_field(name="Players:", value=f"1. {interaction.user.name}", inline=False)
 
         # Track the BigLFG embed
