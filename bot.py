@@ -356,15 +356,18 @@ async def update_embeds(lfg_uuid):
                     else "Click this link to join your game."
                 )
                 embed.add_field(name="Players:", value=player_list, inline=False)
-                
-                # Add the image to the embed
-                embed.set_image(url="https://raw.githubusercontent.com/TryhardClay/PDH-LFG-Bot/f505c8af9b5261e3b1ba6c9339c9b7cee53a7a7c/PDHBot.jpg")
 
+                # Add the image for "Looking for more players..." and "Your game is ready!"
+                if len(players) < 4 or len(players) == 4:
+                    embed.set_image(url="https://raw.githubusercontent.com/TryhardClay/PDH-LFG-Bot/f505c8af9b5261e3b1ba6c9339c9b7cee53a7a7c/PDHBot.jpg")
+
+                # Remove the buttons if player count reaches 4
                 await message.edit(embed=embed, view=None if len(players) >= 4 else create_lfg_view())
             except Exception as e:
                 logging.error(f"Error updating embed in channel {channel_id} for LFG UUID {lfg_uuid}: {e}")
     except Exception as e:
         logging.error(f"Error in update_embeds for LFG UUID {lfg_uuid}: {e}")
+
 # Helper to Create BigLFG View
 def create_lfg_view():
     """
