@@ -244,19 +244,26 @@ async def propagate_text_edit(before, after):
     """
     try:
         logging.info(f"Processing edit for message ID: {before.id}")
-        for unique_id, data in relayed_text_messages.items():
-            if data["original_message"].id == before.id:
-                try:
-                    # Apply edit to the relayed message
-                    relayed_message = data["relayed_message"]
-                    await relayed_message.edit(content=f"{after.author.name} (from {after.guild.name}) said:\n{after.content}")
-                    logging.info(f"Message edit propagated: {before.content} -> {after.content}")
-                except Exception as e:
-                    logging.error(f"Error propagating edit to channel {relayed_message.channel.id}: {e}")
-                return  # Exit after handling the edit for the matching message
-        # If loop completes without finding a match
-        logging.warning(f"Original message {before.id} not found in relayed_text_messages. Cannot propagate edits.")
+        
+        # Find the original message in message_map
+        for original_id, data in message_map.items():
+            if str(before.id) == original_id:
+                # Edit all relayed messages
+                for relayed in data["relayed_messages"]:
+                    try:
+                        channel = client.get_channel(int(relayed["channel_id"]))
+                        if not channel:
+                            logging.warning(f"Channel {relayed['channel_id']} not accessible. Skipping.")
+                            continue
 
+                        message = await channel.fetch_message(int(relayed["message_id"]))
+                        await message.edit(content=f"{after.author.name} (from {after.guild.name}) said:\n{after.content}")
+                        logging.info(f"Message edit propagated to message ID: {relayed['message_id']} in channel {relayed['channel_id']}")
+                    except Exception as e:
+                        logging.error(f"Error editing message ID {relayed['message_id']}: {e}")
+                return
+        
+        logging.warning(f"Original message {before.id} not found in message_map. Cannot propagate edits.")
     except Exception as e:
         logging.error(f"Error in propagate_text_edit: {e}")
 
@@ -485,16 +492,26 @@ async def on_message_delete(message):
     Handles deletions of messages and ensures all related relayed copies are also deleted.
     """
     try:
-        for unique_id, data in list(relayed_text_messages.items()):  # Use list() to avoid iteration issues
-            if data["original_message"].id == message.id:
-                # Delete all relayed copies
+        for original_id, data in list(message_map.items()):
+            if str(message.id) == original_id:
+                # Delete all relayed messages
                 logging.info(f"Deleting relayed messages for original message ID: {message.id}")
-                relayed_message = data["relayed_message"]
-                await relayed_message.delete()
-                del relayed_text_messages[unique_id]
-                logging.info(f"Successfully deleted all related relayed messages for unique_id: {unique_id}")
-                return  # Exit once the correct message is handled
-        logging.warning(f"Original message {message.id} not found in relayed_text_messages. Cannot propagate deletion.")
+                for relayed in data["relayed_messages"]:
+                    try:
+                        channel = client.get_channel(int(relayed["channel_id"]))
+                        if not channel:
+                            logging.warning(f"Channel {relayed['channel_id']} not accessible. Skipping.")
+                            continue
+
+                        target_message = await channel.fetch_message(int(relayed["message_id"]))
+                        await target_message.delete()
+                        logging.info(f"Deleted relayed message ID: {relayed['message_id']} in channel {relayed['channel_id']}")
+                    except Exception as e:
+                        logging.error(f"Error deleting message ID {relayed['message_id']}: {e}")
+                del message_map[original_id]  # Remove from map after deletion
+                return
+        
+        logging.warning(f"Original message {message.id} not found in message_map. Cannot propagate deletion.")
     except Exception as e:
         logging.error(f"Error in on_message_delete: {e}")
 
@@ -560,19 +577,43 @@ async def on_reaction_remove(reaction, user):
     try:
         logging.info(f"Processing reaction {reaction.emoji} removed by {user.name} from message ID: {reaction.message.id}")
 
-        for unique_id, data in relayed_text_messages.items():
-            if data["original_message"].id == reaction.message.id:
-                # Propagate the reaction removal to the relayed copy
-                relayed_message = data["relayed_message"]
-                logging.info(f"Propagating reaction removal {reaction.emoji} from relayed message ID: {relayed_message.id}")
+        # Locate the original message ID
+        for original_id, data in message_map.items():
+            relayed_messages = data["relayed_messages"]
+            if any(str(reaction.message.id) == relayed["message_id"] for relayed in relayed_messages) or str(reaction.message.id) == original_id:
+                logging.info(f"Match found for message ID: {reaction.message.id} (Original ID: {original_id})")
 
-                target_message = await relayed_message.channel.fetch_message(relayed_message.id)
-                await target_message.remove_reaction(reaction.emoji, user)
+                # Propagate the reaction removal to all associated messages
+                for relayed in relayed_messages:
+                    if str(reaction.message.id) != relayed["message_id"]:  # Skip the triggering message
+                        try:
+                            channel = client.get_channel(int(relayed["channel_id"]))
+                            if not channel:
+                                logging.warning(f"Channel {relayed['channel_id']} not accessible. Skipping.")
+                                continue
 
-                logging.info(f"Successfully propagated reaction removal {reaction.emoji} in channel {relayed_message.channel.id}")
-                return
+                            message = await channel.fetch_message(int(relayed["message_id"]))
+                            await message.remove_reaction(reaction.emoji, user)
+                            logging.info(f"Propagated reaction removal {reaction.emoji} from message ID: {relayed['message_id']} in channel {relayed['channel_id']}")
+                        except Exception as e:
+                            logging.error(f"Error propagating reaction removal to message ID {relayed['message_id']}: {e}")
 
-        logging.warning(f"Original message {reaction.message.id} not found in relayed_text_messages. Cannot propagate reaction removals.")
+                # Remove reaction from the original message if not already triggered
+                if str(reaction.message.id) != original_id:
+                    try:
+                        original_channel = client.get_channel(int(data["original_channel_id"]))
+                        if original_channel:
+                            original_message = await original_channel.fetch_message(int(original_id))
+                            await original_message.remove_reaction(reaction.emoji, user)
+                            logging.info(f"Propagated reaction removal {reaction.emoji} to original message ID: {original_id}")
+                    except discord.NotFound:
+                        logging.warning(f"Original message {original_id} not found. Skipping reaction removal propagation to it.")
+                    except Exception as e:
+                        logging.error(f"Error propagating reaction removal to the original message ID {original_id}: {e}")
+
+                return  # Exit after processing the match
+
+        logging.warning(f"Message ID {reaction.message.id} not found in message_map. Cannot propagate reaction removals.")
     except Exception as e:
         logging.error(f"Error in on_reaction_remove: {e}")
 
