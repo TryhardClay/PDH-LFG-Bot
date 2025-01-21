@@ -37,6 +37,9 @@ TOKEN = os.environ.get('TOKEN')
 PERSISTENT_DATA_PATH = '/var/data/webhooks.json'
 CHANNEL_FILTERS_PATH = '/var/data/channel_filters.json'
 
+# Add the IMAGE_URL variable here
+IMAGE_URL = "https://raw.githubusercontent.com/TryhardClay/PDH-LFG-Bot/main/PDHBot.jpg"
+
 # Define RateLimiter Class
 class RateLimiter:
     def __init__(self, max_requests: int, period: float):
@@ -348,26 +351,28 @@ async def update_embeds(lfg_uuid):
 
         for channel_id, message in data["messages"].items():
             try:
-                embed = discord.Embed(
-                    title="Looking for more players..." if len(players) < 4 else "Your game is ready!",
-                    color=discord.Color.yellow() if len(players) < 4 else discord.Color.green(),
-                    description=f"React below ({4 - len(players)} players needed)"
-                    if len(players) < 4
-                    else "Click this link to join your game."
-                )
+                # Determine embed state based on player count
+                if len(players) < 4:
+                    embed = discord.Embed(
+                        title="Looking for more players...",
+                        color=discord.Color.yellow(),
+                        description=f"React below ({4 - len(players)} players needed)"
+                    )
+                    embed.set_image(url=IMAGE_URL)  # Add the image here
+                else:
+                    embed = discord.Embed(
+                        title="Your game is ready!",
+                        color=discord.Color.green(),
+                        description="Click this link to join your game."
+                    )
+                    embed.set_image(url=IMAGE_URL)  # Add the image here as well
+
                 embed.add_field(name="Players:", value=player_list, inline=False)
-
-                # Add the image for "Looking for more players..." and "Your game is ready!"
-                if len(players) < 4 or len(players) == 4:
-                    embed.set_image(url="https://raw.githubusercontent.com/TryhardClay/PDH-LFG-Bot/f505c8af9b5261e3b1ba6c9339c9b7cee53a7a7c/PDHBot.jpg")
-
-                # Remove the buttons if player count reaches 4
                 await message.edit(embed=embed, view=None if len(players) >= 4 else create_lfg_view())
             except Exception as e:
                 logging.error(f"Error updating embed in channel {channel_id} for LFG UUID {lfg_uuid}: {e}")
     except Exception as e:
         logging.error(f"Error in update_embeds for LFG UUID {lfg_uuid}: {e}")
-
 # Helper to Create BigLFG View
 def create_lfg_view():
     """
