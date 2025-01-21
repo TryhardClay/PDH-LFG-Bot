@@ -227,20 +227,20 @@ async def relay_text_message(source_message, destination_channel):
         # Send the message to the destination channel
         relayed_message = await destination_channel.send(content=formatted_content)
 
-        # Define channel and message IDs
+        # Ensure IDs are correctly defined
         original_id = str(source_message.id)
-        relay_channel_id = str(destination_channel.id)  # Corrected assignment
-        relay_message_id = str(relayed_message.id)      # Corrected assignment
+        relay_channel_id = str(destination_channel.id)  # Assigned within scope
+        relay_message_id = str(relayed_message.id)      # Assigned within scope
         source_channel_id = str(source_message.channel.id)
 
-        # Update the message map
+        # Update the message map with properly scoped variables
         if original_id not in message_map:
             message_map[original_id] = {
                 "original_channel_id": source_channel_id,
                 "relayed_messages": []
             }
 
-        # Add the relayed message details
+        # Add the relayed message details to the map
         message_map[original_id]["relayed_messages"].append({
             "channel_id": relay_channel_id,
             "message_id": relay_message_id
