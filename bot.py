@@ -384,53 +384,80 @@ def create_lfg_view():
     """
     view = discord.ui.View(timeout=15 * 60)  # 15-minute timeout
 
-   async def join_button_callback(button_interaction: discord.Interaction):
-    lfg_uuid = None
-    for uuid, data in active_embeds.items():
-        if any(message.id == button_interaction.message.id for message in data["messages"].values()):
-            lfg_uuid = uuid
-            break
+    async def join_button_callback(button_interaction: discord.Interaction):
+        lfg_uuid = None
+        for uuid, data in active_embeds.items():
+            if any(message.id == button_interaction.message.id for message in data["messages"].values()):
+                lfg_uuid = uuid
+                break
 
-    if not lfg_uuid or lfg_uuid not in active_embeds:
-        await button_interaction.response.send_message("This LFG request is no longer active.", ephemeral=True)
-        return
+        if not lfg_uuid or lfg_uuid not in active_embeds:
+            await button_interaction.response.send_message("This LFG request is no longer active.", ephemeral=True)
+            return
 
-    user_id = button_interaction.user.id
-    display_name = button_interaction.user.name
+        user_id = button_interaction.user.id
+        display_name = button_interaction.user.name
 
-    # Add the user if they are not already in the player list
-    if user_id not in active_embeds[lfg_uuid]["players"]:
-        active_embeds[lfg_uuid]["players"][user_id] = display_name
-        await update_embeds(lfg_uuid)
+        # Add the user if they are not already in the player list
+        if user_id not in active_embeds[lfg_uuid]["players"]:
+            active_embeds[lfg_uuid]["players"][user_id] = display_name
+            await update_embeds(lfg_uuid)
 
-    await button_interaction.response.defer()
+            # If the player count reaches four, cancel the timeout and lock the embed
+            if len(active_embeds[lfg_uuid]["players"]) == 4:
+                task = active_embeds[lfg_uuid].get("task")
+                if task and not task.done():
+                    task.cancel()
+                    logging.info(f"Timeout task canceled for LFG UUID {lfg_uuid} as the player count reached four.")
 
-   async def leave_button_callback(button_interaction: discord.Interaction):
-    lfg_uuid = None
-    for uuid, data in active_embeds.items():
-        if any(message.id == button_interaction.message.id for message in data["messages"].values()):
-            lfg_uuid = uuid
-            break
+                # Update the embed to reflect the game is ready
+                for channel_id, message in active_embeds[lfg_uuid]["messages"].items():
+                    try:
+                        embed = discord.Embed(
+                            title="Your game is ready!",
+                            color=discord.Color.green(),
+                            description="Click this link to join your game.",
+                        )
+                        embed.add_field(
+                            name="Players:",
+                            value="\n".join(
+                                [f"{i + 1}. {name}" for i, name in enumerate(active_embeds[lfg_uuid]["players"].values())]
+                            ),
+                            inline=False,
+                        )
+                        await message.edit(embed=embed, view=None)
+                        logging.info(f"Updated embed in channel {channel_id} for LFG UUID {lfg_uuid}")
+                    except Exception as e:
+                        logging.error(f"Error updating embed in channel {channel_id}: {e}")
 
-    if not lfg_uuid or lfg_uuid not in active_embeds:
-        await button_interaction.response.send_message("This LFG request is no longer active.", ephemeral=True)
-        return
+        await button_interaction.response.defer()
 
-    user_id = button_interaction.user.id
+    async def leave_button_callback(button_interaction: discord.Interaction):
+        lfg_uuid = None
+        for uuid, data in active_embeds.items():
+            if any(message.id == button_interaction.message.id for message in data["messages"].values()):
+                lfg_uuid = uuid
+                break
 
-    # Remove the user if they are in the player list
-    if user_id in active_embeds[lfg_uuid]["players"]:
-        del active_embeds[lfg_uuid]["players"][user_id]
-        await update_embeds(lfg_uuid)
+        if not lfg_uuid or lfg_uuid not in active_embeds:
+            await button_interaction.response.send_message("This LFG request is no longer active.", ephemeral=True)
+            return
 
-        # If the player count falls below four and the timeout task was canceled, restart it
-        if len(active_embeds[lfg_uuid]["players"]) < 4:
-            task = active_embeds[lfg_uuid].get("task")
-            if not task or task.done():
-                active_embeds[lfg_uuid]["task"] = asyncio.create_task(lfg_timeout(lfg_uuid))
-                logging.info(f"Timeout task restarted for LFG UUID {lfg_uuid} as the player count fell below four.")
+        user_id = button_interaction.user.id
 
-    await button_interaction.response.defer()
+        # Remove the user if they are in the player list
+        if user_id in active_embeds[lfg_uuid]["players"]:
+            del active_embeds[lfg_uuid]["players"][user_id]
+            await update_embeds(lfg_uuid)
+
+            # If the player count falls below four and the timeout task was canceled, restart it
+            if len(active_embeds[lfg_uuid]["players"]) < 4:
+                task = active_embeds[lfg_uuid].get("task")
+                if not task or task.done():
+                    active_embeds[lfg_uuid]["task"] = asyncio.create_task(lfg_timeout(lfg_uuid))
+                    logging.info(f"Timeout task restarted for LFG UUID {lfg_uuid} as the player count fell below four.")
+
+        await button_interaction.response.defer()
 
     join_button = discord.ui.Button(style=discord.ButtonStyle.success, label="JOIN")
     leave_button = discord.ui.Button(style=discord.ButtonStyle.danger, label="LEAVE")
