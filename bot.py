@@ -344,19 +344,36 @@ async def update_embeds(lfg_uuid):
         data = active_embeds[lfg_uuid]
         players = data["players"]
 
+        # Construct player list
         player_list = "\n".join([f"{i + 1}. {name}" for i, name in enumerate(players.values())]) if players else "Empty"
 
+        # Determine embed updates based on player count
+        title = "Your game is ready!" if len(players) == 4 else "Looking for more players..."
+        color = discord.Color.green() if len(players) == 4 else discord.Color.yellow()
+        description = "Click this link to join your game." if len(players) == 4 else f"React below ({4 - len(players)} players needed)"
+
+        # Update embeds in all channels
         for channel_id, message in data["messages"].items():
             try:
                 embed = discord.Embed(
-                    title="Looking for more players...",
-                    color=discord.Color.yellow() if len(players) < 4 else discord.Color.green(),
-                    description=f"React below ({4 - len(players)} players needed)" if len(players) < 4 else "Your game is ready!",
+                    title=title,
+                    color=color,
+                    description=description,
                 )
                 embed.add_field(name="Players:", value=player_list, inline=False)
-                await message.edit(embed=embed)
+                # Remove buttons if the game is ready
+                view = None if len(players) == 4 else create_lfg_view()
+                await message.edit(embed=embed, view=view)
             except Exception as e:
                 logging.error(f"Error updating embed in channel {channel_id} for LFG UUID {lfg_uuid}: {e}")
+
+        # Cancel timeout task if the game is ready
+        if len(players) == 4:
+            task = data.get("task")
+            if task and not task.done():
+                task.cancel()
+                logging.info(f"Timeout task for LFG UUID {lfg_uuid} canceled as the game is ready.")
+
     except Exception as e:
         logging.error(f"Error in update_embeds for LFG UUID {lfg_uuid}: {e}")
 
@@ -367,44 +384,53 @@ def create_lfg_view():
     """
     view = discord.ui.View(timeout=15 * 60)  # 15-minute timeout
 
-    async def join_button_callback(button_interaction: discord.Interaction):
-        lfg_uuid = None
-        for uuid, data in active_embeds.items():
-            if any(message.id == button_interaction.message.id for message in data["messages"].values()):
-                lfg_uuid = uuid
-                break
+   async def join_button_callback(button_interaction: discord.Interaction):
+    lfg_uuid = None
+    for uuid, data in active_embeds.items():
+        if any(message.id == button_interaction.message.id for message in data["messages"].values()):
+            lfg_uuid = uuid
+            break
 
-        if not lfg_uuid or lfg_uuid not in active_embeds:
-            await button_interaction.response.send_message("This LFG request is no longer active.", ephemeral=True)
-            return
+    if not lfg_uuid or lfg_uuid not in active_embeds:
+        await button_interaction.response.send_message("This LFG request is no longer active.", ephemeral=True)
+        return
 
-        user_id = button_interaction.user.id
-        display_name = button_interaction.user.name
+    user_id = button_interaction.user.id
+    display_name = button_interaction.user.name
 
-        if user_id not in active_embeds[lfg_uuid]["players"]:
-            active_embeds[lfg_uuid]["players"][user_id] = display_name
-            await update_embeds(lfg_uuid)
+    # Add the user if they are not already in the player list
+    if user_id not in active_embeds[lfg_uuid]["players"]:
+        active_embeds[lfg_uuid]["players"][user_id] = display_name
+        await update_embeds(lfg_uuid)
 
-        await button_interaction.response.defer()
+    await button_interaction.response.defer()
 
-    async def leave_button_callback(button_interaction: discord.Interaction):
-        lfg_uuid = None
-        for uuid, data in active_embeds.items():
-            if any(message.id == button_interaction.message.id for message in data["messages"].values()):
-                lfg_uuid = uuid
-                break
+   async def leave_button_callback(button_interaction: discord.Interaction):
+    lfg_uuid = None
+    for uuid, data in active_embeds.items():
+        if any(message.id == button_interaction.message.id for message in data["messages"].values()):
+            lfg_uuid = uuid
+            break
 
-        if not lfg_uuid or lfg_uuid not in active_embeds:
-            await button_interaction.response.send_message("This LFG request is no longer active.", ephemeral=True)
-            return
+    if not lfg_uuid or lfg_uuid not in active_embeds:
+        await button_interaction.response.send_message("This LFG request is no longer active.", ephemeral=True)
+        return
 
-        user_id = button_interaction.user.id
+    user_id = button_interaction.user.id
 
-        if user_id in active_embeds[lfg_uuid]["players"]:
-            del active_embeds[lfg_uuid]["players"][user_id]
-            await update_embeds(lfg_uuid)
+    # Remove the user if they are in the player list
+    if user_id in active_embeds[lfg_uuid]["players"]:
+        del active_embeds[lfg_uuid]["players"][user_id]
+        await update_embeds(lfg_uuid)
 
-        await button_interaction.response.defer()
+        # If the player count falls below four and the timeout task was canceled, restart it
+        if len(active_embeds[lfg_uuid]["players"]) < 4:
+            task = active_embeds[lfg_uuid].get("task")
+            if not task or task.done():
+                active_embeds[lfg_uuid]["task"] = asyncio.create_task(lfg_timeout(lfg_uuid))
+                logging.info(f"Timeout task restarted for LFG UUID {lfg_uuid} as the player count fell below four.")
+
+    await button_interaction.response.defer()
 
     join_button = discord.ui.Button(style=discord.ButtonStyle.success, label="JOIN")
     leave_button = discord.ui.Button(style=discord.ButtonStyle.danger, label="LEAVE")
