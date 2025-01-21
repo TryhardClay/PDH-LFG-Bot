@@ -348,31 +348,41 @@ async def update_embeds(lfg_uuid):
         players = data["players"]
 
         player_list = "\n".join([f"{i + 1}. {name}" for i, name in enumerate(players.values())]) if players else "Empty"
+        is_game_ready = len(players) == 4
 
         for channel_id, message in data["messages"].items():
             try:
-                # Determine embed state based on player count
-                if len(players) < 4:
-                    embed = discord.Embed(
-                        title="Looking for more players...",
-                        color=discord.Color.yellow(),
-                        description=f"React below ({4 - len(players)} players needed)"
-                    )
-                    embed.set_image(url=IMAGE_URL)  # Add the image here
-                else:
-                    embed = discord.Embed(
-                        title="Your game is ready!",
-                        color=discord.Color.green(),
-                        description="Click this link to join your game."
-                    )
-                    embed.set_image(url=IMAGE_URL)  # Add the image here as well
-
+                embed = discord.Embed(
+                    title="Your game is ready!" if is_game_ready else "Looking for more players...",
+                    color=discord.Color.green() if is_game_ready else discord.Color.yellow(),
+                    description="Click this link to join your game." if is_game_ready else f"React below ({4 - len(players)} players needed)"
+                )
+                embed.set_author(
+                    name="PDH LFG Bot",
+                    icon_url=IMAGE_URL,  # Use the image in the author section
+                    url="https://github.com/TryhardClay/PDH-LFG-Bot"  # Optional link for additional reference
+                )
                 embed.add_field(name="Players:", value=player_list, inline=False)
-                await message.edit(embed=embed, view=None if len(players) >= 4 else create_lfg_view())
+
+                if not is_game_ready:
+                    embed.set_thumbnail(url=IMAGE_URL)  # Include thumbnail only when game isn't ready
+
+                await message.edit(embed=embed)
+
+                if is_game_ready:
+                    view = discord.ui.View()
+                    await message.edit(view=view)  # Remove buttons if the game is ready
+                    # Cancel the timeout task since the game is ready
+                    task = data.pop("task", None)
+                    if task and not task.done():
+                        task.cancel()
+                        logging.info(f"Timeout task canceled for LFG UUID {lfg_uuid} as the game is ready.")
+
             except Exception as e:
                 logging.error(f"Error updating embed in channel {channel_id} for LFG UUID {lfg_uuid}: {e}")
     except Exception as e:
         logging.error(f"Error in update_embeds for LFG UUID {lfg_uuid}: {e}")
+
 # Helper to Create BigLFG View
 def create_lfg_view():
     """
