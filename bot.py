@@ -896,18 +896,19 @@ async def gamerequest(interaction: discord.Interaction):
     """
     try:
         await interaction.response.defer(ephemeral=True)
+        logging.info(f"Received /gamerequest command from {interaction.user} (ID: {interaction.user.id}).")
 
         # Example game data
         game_data = {
             "id": str(uuid.uuid4()),  # Unique game ID
-            "format": "GameFormat.PAUPER_EDH",  # Game format
-            "player_count": 4  # Number of players
         }
+        game_format = "GameFormat.PAUPER_EDH"  # Specific to Pauper EDH
+        player_count = 4  # Number of players
 
-        game_format = "PAUPER_EDH"  # Pass the specific format as an argument
+        logging.info(f"Preparing to generate TableStream link with game_data: {game_data}, game_format: {game_format}, player_count: {player_count}")
 
         # Generate the TableStream link
-        game_link, game_password = await generate_tablestream_link(game_data, game_format)
+        game_link, game_password = await generate_tablestream_link(game_data, game_format, player_count)
 
         if game_link:
             response_message = (
