@@ -515,7 +515,7 @@ async def generate_tablestream_link(game_data, creator_name):
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(api_url, json=payload, headers=headers) as response:
-                if response.status == 200:
+                if response.status in (200, 201):  # Accept both 200 and 201 as success
                     data = await response.json()
                     room = data.get("room", {})
                     game_link = room.get("roomUrl")
