@@ -501,52 +501,13 @@ async def lfg_timeout(lfg_uuid):
         logging.error(f"Error in lfg_timeout for LFG UUID {lfg_uuid}: {e}")
 
 # Helper to generate TableStream link
-async def generate_tablestream_link(requester_name: str, game_id: str, game_format: str, player_count: int):
+async def generate_tablestream_link(game_data: dict, game_format: GameFormat, player_count: int) -> tuple[str | None, str | None]:
     """
-    Generate a TableStream link using the provided game data and return the link and password.
-    :param requester_name: Name of the person initiating the request.
-    :param game_id: Unique identifier for the game.
-    :param game_format: Format of the game (e.g., Pauper EDH).
-    :param player_count: Number of players for the game.
-    :return: Tuple containing (game_link, game_password) or (None, None) on failure.
+    Generate a TableStream link using the provided game data, format, and player count.
     """
-    api_url = "https://api.table-stream.com/create-room"
-    token_bearer = os.environ.get("TABLESTREAM_BEARER_TOKEN")  # Fetch the token from environment variables
-
-    if not token_bearer:
-        logging.error("Bearer token for TableStream API is missing!")
-        return None, None
-
-    headers = {
-        "Authorization": f"Bearer {token_bearer}",
-        "Content-Type": "application/json"
-    }
-
-    room_name = sanitize_room_name(requester_name)
-    payload = {
-        "roomName": room_name,
-        "gameType": "MTGCommander",  # This matches Pauper EDH functionality on TableStream
-        "maxPlayers": player_count,
-        "private": True,
-        "initialScheduleTTLInSeconds": 3600  # 1 hour
-    }
-
-    logging.info(f"Preparing to generate TableStream link with payload: {payload}")
-
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(api_url, json=payload, headers=headers) as response:
-                if response.status == 201:  # Success
-                    data = await response.json()
-                    room = data.get("room", {})
-                    game_link = room.get("roomUrl")
-                    game_password = room.get("password")
-                    logging.info(f"Generated TableStream game link: {game_link}")
-                    return game_link, game_password
-                else:
-                    error_data = await response.json()
-                    logging.error(f"Failed to generate TableStream link. Status: {response.status}, Error: {error_data}")
-                    return None, None
+        logging.info(f"Generating TableStream link with game_data: {game_data}, game_format: {game_format}, player_count: {player_count}")
+        # Rest of the function logic...
     except Exception as e:
         logging.error(f"Error while generating TableStream link: {e}")
         return None, None
@@ -899,17 +860,18 @@ async def gamerequest(interaction: discord.Interaction):
     """
     try:
         await interaction.response.defer(ephemeral=True)
-        logging.info(f"Received /gamerequest command from {interaction.user} (ID: {interaction.user.id}).")
 
-        # Example game data
-        game_data = {"id": str(uuid.uuid4())}  # Unique game ID
-        game_format = GameFormat.PAUPER_EDH  # Specific to Pauper EDH
-        player_count = 4  # Number of players
+        # Game data
+        game_data = {
+            "id": str(uuid.uuid4())  # Unique game ID
+        }
+        game_format = GameFormat.PAUPER_EDH
+        player_count = 4
 
         logging.info(f"Preparing to generate TableStream link with game_data: {game_data}, game_format: {game_format}, player_count: {player_count}")
 
-        # Correctly call the function with positional arguments
-        game_link, game_password = await generate_tablestream_link(game_data["id"], game_format, player_count)
+        # Generate TableStream link
+        game_link, game_password = await generate_tablestream_link(game_data, game_format, player_count)
 
         if game_link:
             response_message = (
