@@ -856,60 +856,13 @@ async def about(interaction: discord.Interaction):
         logging.error(f"Error in /about command: {e}")
         await interaction.response.send_message("An error occurred while processing the command.", ephemeral=True)
 
-@client.tree.command(name="testtslink", description="Test connectivity to the TableStream API.")
-async def testtslink(interaction: discord.Interaction):
-    """
-    Command to test connectivity to the TableStream API.
-    """
-    try:
-        await interaction.response.defer(ephemeral=True)
-
-        api_url = "https://api.tablestream.com/games"  # Replace with the actual API endpoint
-        token_bearer = os.environ.get("TABLESTREAM_BEARER_TOKEN")  # Fetch the token from environment variables
-
-        if not token_bearer:
-            await interaction.followup.send("Bearer token for TableStream API is missing!", ephemeral=True)
-            logging.error("Bearer token for TableStream API is missing!")
-            return
-
-        headers = {
-            "Authorization": f"Bearer {token_bearer}",
-            "Content-Type": "application/json"
-        }
-
-        # Dummy payload to test the API
-        payload = {
-            "game_id": "test",
-            "format": "GameFormat.PAUPER_EDH",
-            "player_count": 4
-        }
-
-        async with aiohttp.ClientSession() as session:
-            async with session.post(api_url, json=payload, headers=headers) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    await interaction.followup.send(
-                        f"Successfully connected to TableStream API!\nResponse: {data}", ephemeral=True
-                    )
-                    logging.info(f"Test API response: {data}")
-                else:
-                    error_message = await response.text()
-                    await interaction.followup.send(
-                        f"Failed to connect to TableStream API. Status: {response.status}\nError: {error_message}",
-                        ephemeral=True,
-                    )
-                    logging.error(f"Failed API response: {error_message}")
-
-    except Exception as e:
-        logging.error(f"Error in /testtslink command: {e}")
-        await interaction.followup.send("An error occurred while testing the TableStream API.", ephemeral=True)
-
 @client.tree.command(name="gamerequest", description="Generate a test game request to verify TableStream integration.")
 async def gamerequest(interaction: discord.Interaction):
     """
     Test command to generate a TableStream game request and display the link and password.
     """
     try:
+        logging.info(f"Received /gamerequest command from {interaction.user.name} (ID: {interaction.user.id}).")
         await interaction.response.defer(ephemeral=True)
 
         # Example game data
@@ -919,22 +872,36 @@ async def gamerequest(interaction: discord.Interaction):
             "player_count": 4  # Number of players
         }
 
+        logging.info(f"Preparing to generate TableStream link with game data: {json.dumps(game_data)}")
+
         # Generate the TableStream link
         game_link, game_password = await generate_tablestream_link(game_data)
 
         if game_link:
+            logging.info(f"TableStream link generated successfully: {game_link}")
             response_message = (
                 f"**Game Request Generated Successfully!**\n\n"
                 f"**Link:** {game_link}\n"
                 f"**Password:** {game_password if game_password else 'No password required'}"
             )
         else:
+            logging.error("Failed to generate the TableStream link. Check the API configuration or payload.")
             response_message = "Failed to generate the game request. Please check the configuration and try again."
 
         await interaction.followup.send(response_message, ephemeral=True)
+
+    except aiohttp.ClientError as e:
+        logging.error(f"ClientError while accessing TableStream API: {e}")
+        await interaction.followup.send(
+            "A network error occurred while communicating with the TableStream API. Please try again later.",
+            ephemeral=True
+        )
     except Exception as e:
-        logging.error(f"Error in /gamerequest command: {e}")
-        await interaction.followup.send("An error occurred while processing the game request.", ephemeral=True)
+        logging.error(f"Unexpected error in /gamerequest command: {e}")
+        await interaction.followup.send(
+            "An unexpected error occurred while processing the game request. Please contact support.",
+            ephemeral=True
+        )
 
 @client.tree.command(name="biglfg", description="Create a cross-server LFG request.")
 async def biglfg(interaction: discord.Interaction):
