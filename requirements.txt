@@ -2,3 +2,4 @@ discord.py
 aiohttp
 requests
 cachetools
+aiohttp-retry
