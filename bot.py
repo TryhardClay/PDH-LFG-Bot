@@ -864,28 +864,22 @@ async def about(interaction: discord.Interaction):
 @client.tree.command(name="gamerequest", description="Generate a test game request to verify TableStream integration.")
 async def gamerequest(interaction: discord.Interaction):
     """
-    Test command to generate a TableStream game request and display the link and password.
+    Test command to generate a TableStream game request and display the link.
     """
     try:
-        creator_name = interaction.user.name  # Get the command initiator's name
-        logging.info(f"Received /gamerequest command from {creator_name} (ID: {interaction.user.id}).")
         await interaction.response.defer(ephemeral=True)
 
-        # Example game data
-        game_data = {
-            "id": str(uuid.uuid4()),  # Unique game ID
-            "format": "GameFormat.PAUPER_EDH",  # Game format
-            "player_count": 4  # Number of players
-        }
+        # Get the user who initiated the command
+        game_creator = interaction.user.name
 
         # Generate the TableStream link
-        game_link, game_password = await generate_tablestream_link(game_data, creator_name)
+        game_link, _ = await generate_tablestream_link(game_creator)
 
         if game_link:
             response_message = (
                 f"**Game Request Generated Successfully!**\n\n"
                 f"**Link:** {game_link}\n"
-                f"**Password:** {game_password if game_password else 'No password required'}"
+                f"**No password required.**"
             )
         else:
             response_message = "Failed to generate the game request. Please check the configuration and try again."
