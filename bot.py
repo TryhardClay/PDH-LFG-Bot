@@ -536,6 +536,13 @@ async def on_ready():
     for guild in client.guilds:
         logging.info(f"Connected to server: {guild.name} (ID: {guild.id})")
 
+    # Synchronize the command tree
+    try:
+        await client.tree.sync()
+        logging.info("Command tree synchronized successfully with Discord.")
+    except Exception as e:
+        logging.error(f"Error synchronizing command tree: {e}")
+
     logging.info("Bot is ready to receive updates and relay messages.")
 
 @client.event
@@ -792,22 +799,35 @@ async def listconnections(interaction: discord.Interaction):
         logging.error(f"Error listing connections: {e}")
         await interaction.response.send_message("An error occurred while listing connections.", ephemeral=True)
 
-
-@client.tree.command(name="updateconfig", description="Reload the bot's configuration (for debugging/development).")
+@client.tree.command(name="updateconfig", description="Reload the bot's configuration and resync commands.")
 @has_permissions(administrator=True)
 async def updateconfig(interaction: discord.Interaction):
     """
-    Reload the bot's configuration from persistent storage without restarting.
+    Reload the bot's configuration from persistent storage, resynchronize commands,
+    and provide feedback on updates.
     """
     try:
+        # Reload configuration files
         global WEBHOOK_URLS, CHANNEL_FILTERS
         WEBHOOK_URLS = load_webhook_data()
         CHANNEL_FILTERS = load_channel_filters()
-        await interaction.response.send_message("Bot configuration reloaded successfully.", ephemeral=True)
-    except Exception as e:
-        logging.error(f"Error reloading configuration: {e}")
-        await interaction.response.send_message("An error occurred while reloading the configuration.", ephemeral=True)
 
+        # Resynchronize the command tree
+        await client.tree.sync()
+
+        # Provide feedback
+        await interaction.response.send_message(
+            "Configuration reloaded successfully and command tree synchronized!",
+            ephemeral=True
+        )
+
+        logging.info("Configuration reloaded and command tree synchronized successfully.")
+    except Exception as e:
+        logging.error(f"Error during /updateconfig: {e}")
+        await interaction.response.send_message(
+            f"An error occurred while reloading configuration or syncing commands: {e}",
+            ephemeral=True
+        )
 
 @client.tree.command(name="about", description="Show information about the bot and its commands.")
 async def about(interaction: discord.Interaction):
