@@ -6,6 +6,7 @@ import os
 import logging
 import uuid
 import time
+import requests
 from discord.ext import commands
 from discord.ext.commands import has_permissions
 from discord.ui import Button, View
@@ -854,6 +855,37 @@ async def about(interaction: discord.Interaction):
     except Exception as e:
         logging.error(f"Error in /about command: {e}")
         await interaction.response.send_message("An error occurred while processing the command.", ephemeral=True)
+
+@client.tree.command(name="testapi", description="Test connectivity to the TableStream API.")
+async def testapi(interaction: discord.Interaction):
+    """
+    A command to test API connectivity and log any issues.
+    """
+    await interaction.response.defer(ephemeral=True)
+    url = "https://api.tablestream.com/games"
+    token_bearer = os.environ.get("TABLESTREAM_BEARER_TOKEN")
+
+    if not token_bearer:
+        await interaction.followup.send("Bearer token is missing. Please check environment variables.", ephemeral=True)
+        return
+
+    headers = {"Authorization": f"Bearer {token_bearer}", "Content-Type": "application/json"}
+    payload = {"game_id": "test_id", "format": "test_format", "player_count": 4}
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, headers=headers) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    await interaction.followup.send(f"API Test Successful! Response: {data}", ephemeral=True)
+                else:
+                    error_text = await response.text()
+                    await interaction.followup.send(
+                        f"API Test Failed with Status: {response.status}\nResponse: {error_text}", ephemeral=True
+                    )
+    except Exception as e:
+        logging.error(f"Error during API test: {e}")
+        await interaction.followup.send(f"API Test Error: {e}", ephemeral=True)
 
 @client.tree.command(name="gamerequest", description="Generate a test game request to verify TableStream integration.")
 async def gamerequest(interaction: discord.Interaction):
