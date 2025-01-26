@@ -1,20 +1,22 @@
-import discord
-import aiohttp
-import asyncio
-import json
 import os
-import logging
+import re
+import json
 import uuid
 import time
-import requests
-import re
+import logging
 from enum import Enum
+from datetime import datetime, timedelta
+
+import discord
 from discord.ext import commands
 from discord.ext.commands import has_permissions
 from discord.ui import Button, View
-from cachetools import TTLCache
-from datetime import datetime, timedelta
+
+import aiohttp
 from aiohttp_retry import RetryClient, ExponentialRetry
+
+import requests
+from cachetools import TTLCache
 
 # -------------------------------------------------------------------------
 # Setup and Configuration
@@ -865,17 +867,23 @@ async def gamerequest(interaction: discord.Interaction):
     try:
         await interaction.response.defer(ephemeral=True)
 
-        # Get the user who initiated the command
-        game_creator = interaction.user.name
+        # Example game data
+        game_data = {
+            "id": str(uuid.uuid4()),  # Unique game ID
+            "format": "GameFormat.PAUPER_EDH",  # Game format
+            "player_count": 4  # Number of players
+        }
+
+        game_format = "PAUPER_EDH"  # Pass the specific format as an argument
 
         # Generate the TableStream link
-        game_link, game_password = await generate_tablestream_link(game_creator)
+        game_link, game_password = await generate_tablestream_link(game_data, game_format)
 
         if game_link:
             response_message = (
                 f"**Game Request Generated Successfully!**\n\n"
                 f"**Link:** {game_link}\n"
-                f"**Password:** {game_password if game_password else 'No password provided'}"
+                f"**Password:** {game_password if game_password else 'No password required'}"
             )
         else:
             response_message = "Failed to generate the game request. Please check the configuration and try again."
