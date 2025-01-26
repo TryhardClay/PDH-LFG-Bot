@@ -900,13 +900,13 @@ async def gamerequest(interaction: discord.Interaction):
 
         # Example game data
         game_data = {"id": str(uuid.uuid4())}  # Unique game ID
-        game_format = "GameFormat.PAUPER_EDH"  # Specific to Pauper EDH
+        game_format = GameFormat.PAUPER_EDH  # Specific to Pauper EDH
         player_count = 4  # Number of players
 
         logging.info(f"Preparing to generate TableStream link with game_data: {game_data}, game_format: {game_format}, player_count: {player_count}")
 
-        # Generate the TableStream link
-        game_link, game_password = await generate_tablestream_link(game_data, game_format, player_count)
+        # Correctly call the function with positional arguments
+        game_link, game_password = await generate_tablestream_link(game_data["id"], game_format, player_count)
 
         if game_link:
             response_message = (
