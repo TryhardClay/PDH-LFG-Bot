@@ -856,36 +856,53 @@ async def about(interaction: discord.Interaction):
         logging.error(f"Error in /about command: {e}")
         await interaction.response.send_message("An error occurred while processing the command.", ephemeral=True)
 
-@client.tree.command(name="testapi", description="Test connectivity to the TableStream API.")
-async def testapi(interaction: discord.Interaction):
+@client.tree.command(name="testtslink", description="Test connectivity to the TableStream API.")
+async def testtslink(interaction: discord.Interaction):
     """
-    A command to test API connectivity and log any issues.
+    Command to test connectivity to the TableStream API.
     """
-    await interaction.response.defer(ephemeral=True)
-    url = "https://api.tablestream.com/games"
-    token_bearer = os.environ.get("TABLESTREAM_BEARER_TOKEN")
-
-    if not token_bearer:
-        await interaction.followup.send("Bearer token is missing. Please check environment variables.", ephemeral=True)
-        return
-
-    headers = {"Authorization": f"Bearer {token_bearer}", "Content-Type": "application/json"}
-    payload = {"game_id": "test_id", "format": "test_format", "player_count": 4}
-
     try:
+        await interaction.response.defer(ephemeral=True)
+
+        api_url = "https://api.tablestream.com/games"  # Replace with the actual API endpoint
+        token_bearer = os.environ.get("TABLESTREAM_BEARER_TOKEN")  # Fetch the token from environment variables
+
+        if not token_bearer:
+            await interaction.followup.send("Bearer token for TableStream API is missing!", ephemeral=True)
+            logging.error("Bearer token for TableStream API is missing!")
+            return
+
+        headers = {
+            "Authorization": f"Bearer {token_bearer}",
+            "Content-Type": "application/json"
+        }
+
+        # Dummy payload to test the API
+        payload = {
+            "game_id": "test",
+            "format": "GameFormat.PAUPER_EDH",
+            "player_count": 4
+        }
+
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, headers=headers) as response:
+            async with session.post(api_url, json=payload, headers=headers) as response:
                 if response.status == 200:
                     data = await response.json()
-                    await interaction.followup.send(f"API Test Successful! Response: {data}", ephemeral=True)
-                else:
-                    error_text = await response.text()
                     await interaction.followup.send(
-                        f"API Test Failed with Status: {response.status}\nResponse: {error_text}", ephemeral=True
+                        f"Successfully connected to TableStream API!\nResponse: {data}", ephemeral=True
                     )
+                    logging.info(f"Test API response: {data}")
+                else:
+                    error_message = await response.text()
+                    await interaction.followup.send(
+                        f"Failed to connect to TableStream API. Status: {response.status}\nError: {error_message}",
+                        ephemeral=True,
+                    )
+                    logging.error(f"Failed API response: {error_message}")
+
     except Exception as e:
-        logging.error(f"Error during API test: {e}")
-        await interaction.followup.send(f"API Test Error: {e}", ephemeral=True)
+        logging.error(f"Error in /testtslink command: {e}")
+        await interaction.followup.send("An error occurred while testing the TableStream API.", ephemeral=True)
 
 @client.tree.command(name="gamerequest", description="Generate a test game request to verify TableStream integration.")
 async def gamerequest(interaction: discord.Interaction):
