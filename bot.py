@@ -908,7 +908,7 @@ async def gamerequest(interaction: discord.Interaction):
         logging.info(f"Preparing to generate TableStream link with game_data: {game_data}, game_format: {game_format}, player_count: {player_count}")
 
         # Generate the TableStream link
-        game_link, game_password = await generate_tablestream_link(game_data, game_format, player_count)
+        game_link, game_password = await generate_tablestream_link(game_data=game_data, game_format=game_format, player_count=player_count)
 
         if game_link:
             response_message = (
