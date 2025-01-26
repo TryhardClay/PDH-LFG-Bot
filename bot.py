@@ -134,6 +134,9 @@ def load_channel_filters():
         logging.error(f"Error decoding JSON from {CHANNEL_FILTERS_PATH}: {e}")
         return {}
 
+class GameFormat(Enum):
+    PAUPER_EDH = "Pauper EDH"
+
 WEBHOOK_URLS = load_webhook_data()
 CHANNEL_FILTERS = load_channel_filters()
 
