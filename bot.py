@@ -533,16 +533,16 @@ async def on_ready():
     CHANNEL_FILTERS = load_channel_filters()
     logging.info("Configurations reloaded successfully.")
 
+    # Force sync commands with Discord
+    try:
+        await client.tree.sync()
+        logging.info("Commands have been synced successfully.")
+    except Exception as e:
+        logging.error(f"Error syncing commands: {e}")
+
     # Log connected guilds for monitoring
     for guild in client.guilds:
         logging.info(f"Connected to server: {guild.name} (ID: {guild.id})")
-
-    # Synchronize the command tree
-    try:
-        await client.tree.sync()
-        logging.info("Command tree synchronized successfully with Discord.")
-    except Exception as e:
-        logging.error(f"Error synchronizing command tree: {e}")
 
     logging.info("Bot is ready to receive updates and relay messages.")
 
