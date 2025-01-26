@@ -475,14 +475,14 @@ async def lfg_timeout(lfg_uuid):
         logging.error(f"Error in lfg_timeout for LFG UUID {lfg_uuid}: {e}")
 
 # Helper to generate TableStream link
-async def generate_tablestream_link(game_creator: str):
+async def generate_tablestream_link(game_creator: str) -> tuple[str | None, str | None]:
     """
-    Generate a TableStream link using the provided game creator's name.
-    :param game_creator: Name of the user who initiated the game.
-    :return: Tuple containing (game_link, None) or (None, None) on failure.
+    Generate a TableStream link for a game.
+    :param game_creator: Name of the user creating the game.
+    :return: Tuple containing (game_link, game_password) or (None, None) on failure.
     """
-    api_url = "https://api.table-stream.com/create-room"
-    token_bearer = os.environ.get("TABLESTREAM_BEARER_TOKEN")  # Fetch the token from environment variables
+    api_url = "https://api.table-stream.com/create-room"  # Correct API endpoint
+    token_bearer = os.environ.get("TABLESTREAM_BEARER_TOKEN")  # Fetch token from environment
 
     if not token_bearer:
         logging.error("Bearer token for TableStream API is missing!")
@@ -490,28 +490,27 @@ async def generate_tablestream_link(game_creator: str):
 
     headers = {
         "Authorization": f"Bearer {token_bearer}",
-        "Content-Type": "application/json",
+        "Content-Type": "application/json"
     }
 
-    room_name = f"{game_creator}'s Pauper EDH Room"
     payload = {
-        "roomName": room_name,
+        "roomName": f"{game_creator}'s Pauper EDH Room",
         "gameType": "MTGCommander",
         "maxPlayers": 4,
-        "private": True,
-        "initialScheduleTTLInSeconds": 3600,  # 1 hour
+        "private": True,  # Private room requiring a password
+        "initialScheduleTTLInSeconds": 3600,  # 1-hour duration
     }
 
     try:
-        logging.info(f"Preparing to generate TableStream link with payload: {payload}")
         async with aiohttp.ClientSession() as session:
             async with session.post(api_url, json=payload, headers=headers) as response:
-                if response.status == 201:
+                if response.status == 201:  # HTTP 201 indicates success
                     data = await response.json()
                     room = data.get("room", {})
                     game_link = room.get("roomUrl")
+                    game_password = room.get("password")
                     logging.info(f"Generated TableStream game link: {game_link}")
-                    return game_link, None
+                    return game_link, game_password
                 else:
                     logging.error(f"Failed to generate TableStream link. Status: {response.status}")
                     logging.error(await response.text())
@@ -864,7 +863,7 @@ async def about(interaction: discord.Interaction):
 @client.tree.command(name="gamerequest", description="Generate a test game request to verify TableStream integration.")
 async def gamerequest(interaction: discord.Interaction):
     """
-    Test command to generate a TableStream game request and display the link.
+    Test command to generate a TableStream game request and display the link and password.
     """
     try:
         await interaction.response.defer(ephemeral=True)
@@ -873,13 +872,13 @@ async def gamerequest(interaction: discord.Interaction):
         game_creator = interaction.user.name
 
         # Generate the TableStream link
-        game_link, _ = await generate_tablestream_link(game_creator)
+        game_link, game_password = await generate_tablestream_link(game_creator)
 
         if game_link:
             response_message = (
                 f"**Game Request Generated Successfully!**\n\n"
                 f"**Link:** {game_link}\n"
-                f"**No password required.**"
+                f"**Password:** {game_password if game_password else 'No password provided'}"
             )
         else:
             response_message = "Failed to generate the game request. Please check the configuration and try again."
