@@ -807,6 +807,9 @@ async def updateconfig(interaction: discord.Interaction):
     and provide feedback on updates.
     """
     try:
+        # Acknowledge the interaction immediately to avoid expiration
+        await interaction.response.defer(ephemeral=True)
+
         # Reload configuration files
         global WEBHOOK_URLS, CHANNEL_FILTERS
         WEBHOOK_URLS = load_webhook_data()
@@ -815,16 +818,15 @@ async def updateconfig(interaction: discord.Interaction):
         # Resynchronize the command tree
         await client.tree.sync()
 
-        # Provide feedback
-        await interaction.response.send_message(
+        # Send follow-up message indicating success
+        await interaction.followup.send(
             "Configuration reloaded successfully and command tree synchronized!",
             ephemeral=True
         )
-
         logging.info("Configuration reloaded and command tree synchronized successfully.")
     except Exception as e:
         logging.error(f"Error during /updateconfig: {e}")
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"An error occurred while reloading configuration or syncing commands: {e}",
             ephemeral=True
         )
