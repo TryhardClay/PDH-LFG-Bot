@@ -219,6 +219,18 @@ def table_stream_game_type(format: str) -> TableStreamGameTypes:
         return TableStreamGameTypes.MTGCommander
     raise ValueError(f"Unsupported game format: {format}")
 
+def sanitize_room_name(requester_name: str) -> str:
+    """
+    Generate a valid room name by sanitizing the requester's name.
+    Ensures the name meets TableStream's requirements.
+    """
+    base_room_name = f"{requester_name}'s Pauper EDH Room"
+    # Remove problematic characters and trim to 100 characters
+    sanitized_name = re.sub(r"[^a-zA-Z0-9\s]", "", base_room_name).strip()[:100]
+    if len(sanitized_name) > 100:
+        sanitized_name = sanitized_name[:100]
+    return sanitized_name
+
 # Text Message Relay
 async def relay_text_message(source_message, destination_channel):
     """
@@ -486,28 +498,48 @@ async def lfg_timeout(lfg_uuid):
         logging.error(f"Error in lfg_timeout for LFG UUID {lfg_uuid}: {e}")
 
 # Helper to generate TableStream link
-async def generate_tablestream_link(game_id: str, game_format: str, player_count: int = 4) -> tuple[str | None, str | None]:
+async def generate_tablestream_link(requester_name: str, game_id: str, game_format: str, player_count: int):
+    """
+    Generate a TableStream link using the provided game data and return the link and password.
+    :param requester_name: Name of the person initiating the request.
+    :param game_id: Unique identifier for the game.
+    :param game_format: Format of the game (e.g., Pauper EDH).
+    :param player_count: Number of players for the game.
+    :return: Tuple containing (game_link, game_password) or (None, None) on failure.
+    """
+    api_url = "https://api.table-stream.com/create-room"
+    token_bearer = os.environ.get("TABLESTREAM_BEARER_TOKEN")  # Fetch the token from environment variables
+
+    if not token_bearer:
+        logging.error("Bearer token for TableStream API is missing!")
+        return None, None
+
     headers = {
-        "Authorization": f"Bearer {os.environ['TABLESTREAM_BEARER_TOKEN']}",
-        "Content-Type": "application/json",
-    }
-    
-    payload = {
-        "roomName": f"PDH-{game_id}",
-        "gameType": table_stream_game_type(game_format).value,
-        "maxPlayers": player_count,
-        "private": True,  # Generate password automatically
-        "initialScheduleTTLInSeconds": 3600,  # 1 hour
+        "Authorization": f"Bearer {token_bearer}",
+        "Content-Type": "application/json"
     }
 
-    retry_options = ExponentialRetry(attempts=5)
+    room_name = sanitize_room_name(requester_name)
+    payload = {
+        "roomName": room_name,
+        "gameType": "MTGCommander",  # This matches Pauper EDH functionality on TableStream
+        "maxPlayers": player_count,
+        "private": True,
+        "initialScheduleTTLInSeconds": 3600  # 1 hour
+    }
+
+    logging.info(f"Preparing to generate TableStream link with payload: {payload}")
+
     try:
-        async with RetryClient(retry_options=retry_options) as client:
-            async with client.post("https://api.table-stream.com/create-room", json=payload, headers=headers) as response:
-                if response.status == 201:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(api_url, json=payload, headers=headers) as response:
+                if response.status == 201:  # Success
                     data = await response.json()
                     room = data.get("room", {})
-                    return room.get("roomUrl"), room.get("password")
+                    game_link = room.get("roomUrl")
+                    game_password = room.get("password")
+                    logging.info(f"Generated TableStream game link: {game_link}")
+                    return game_link, game_password
                 else:
                     error_data = await response.json()
                     logging.error(f"Failed to generate TableStream link. Status: {response.status}, Error: {error_data}")
