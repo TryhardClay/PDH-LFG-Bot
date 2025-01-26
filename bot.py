@@ -7,6 +7,7 @@ import logging
 import uuid
 import time
 import requests
+import re
 from discord.ext import commands
 from discord.ext.commands import has_permissions
 from discord.ui import Button, View
@@ -493,14 +494,15 @@ async def generate_tablestream_link(game_data, creator_name):
         "Content-Type": "application/json"
     }
 
-    # Generate a room name dynamically based on the creator's name
-    room_name = f"{creator_name}'s Game Room"
+    # Sanitize the room name by stripping special characters and limiting length
+    sanitized_creator_name = re.sub(r'[^a-zA-Z0-9 ]', '', creator_name)[:50]
+    room_name = f"{sanitized_creator_name}'s Game Room" if sanitized_creator_name else "PDH LFG Game Room"
 
     payload = {
         "game_id": game_data["id"],
         "format": game_data["format"],
         "player_count": game_data["player_count"],
-        "room_name": room_name  # Add the room name to the payload
+        "room_name": room_name  # Add the sanitized room name to the payload
     }
 
     logging.info(f"Preparing to generate TableStream link with payload: {payload}")
