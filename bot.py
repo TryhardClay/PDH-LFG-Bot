@@ -366,16 +366,22 @@ async def update_embeds(lfg_uuid):
                     embed.set_thumbnail(url=IMAGE_URL)  # Retain thumbnail until the game is ready
                 embed.add_field(name="Players:", value=player_list, inline=False)
 
-                await message.edit(embed=embed)
-
                 if is_game_ready:
+                    # Add the game link to the embed
+                    game_request_link = f"[Join the game room here](https://tablestream.com/game/{lfg_uuid})"
+                    embed.add_field(name="Game Room:", value=game_request_link, inline=False)
+
+                    # Remove buttons if the game is ready
                     view = discord.ui.View()
-                    await message.edit(view=view)  # Remove buttons if the game is ready
+                    await message.edit(view=view)
+
                     # Cancel the timeout task since the game is ready
                     task = data.pop("task", None)
                     if task and not task.done():
                         task.cancel()
                         logging.info(f"Timeout task canceled for LFG UUID {lfg_uuid} as the game is ready.")
+
+                await message.edit(embed=embed)
 
             except Exception as e:
                 logging.error(f"Error updating embed in channel {channel_id} for LFG UUID {lfg_uuid}: {e}")
@@ -465,6 +471,48 @@ async def lfg_timeout(lfg_uuid):
                     logging.error(f"Error updating embed on timeout for LFG UUID {lfg_uuid}: {e}")
     except Exception as e:
         logging.error(f"Error in lfg_timeout for LFG UUID {lfg_uuid}: {e}")
+
+# Helper to generate TableStream link
+async def generate_tablestream_link(game_data):
+    """
+    Generate a TableStream link using the provided game data and return the link and password.
+    :param game_data: Dictionary containing game details (id, format, player_count).
+    :return: Tuple containing (game_link, game_password) or (None, None) on failure.
+    """
+    api_url = "https://api.tablestream.com/games"  # Replace with the actual API endpoint
+    token_bearer = os.environ.get("TABLESTREAM_BEARER_TOKEN")  # Fetch the token from environment variables
+
+    if not token_bearer:
+        logging.error("Bearer token for TableStream API is missing!")
+        return None, None
+
+    headers = {
+        "Authorization": f"Bearer {token_bearer}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "game_id": game_data["id"],
+        "format": game_data["format"],
+        "player_count": game_data["player_count"]
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(api_url, json=payload, headers=headers) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    game_link = data.get("link")
+                    game_password = data.get("password")
+                    logging.info(f"Generated TableStream game link: {game_link}")
+                    return game_link, game_password
+                else:
+                    logging.error(f"Failed to generate TableStream link. Status: {response.status}")
+                    logging.error(await response.text())
+                    return None, None
+    except Exception as e:
+        logging.error(f"Error while generating TableStream link: {e}")
+        return None, None
 
 # -------------------------------------------------------------------------
 # Event Handlers
@@ -784,6 +832,38 @@ async def about(interaction: discord.Interaction):
     except Exception as e:
         logging.error(f"Error in /about command: {e}")
         await interaction.response.send_message("An error occurred while processing the command.", ephemeral=True)
+
+@client.tree.command(name="gamerequest", description="Generate a test game request to verify TableStream integration.")
+async def gamerequest(interaction: discord.Interaction):
+    """
+    Test command to generate a TableStream game request and display the link and password.
+    """
+    try:
+        await interaction.response.defer(ephemeral=True)
+
+        # Example game data
+        game_data = {
+            "id": str(uuid.uuid4()),  # Unique game ID
+            "format": "GameFormat.PAUPER_EDH",  # Game format
+            "player_count": 4  # Number of players
+        }
+
+        # Generate the TableStream link
+        game_link, game_password = await generate_tablestream_link(game_data)
+
+        if game_link:
+            response_message = (
+                f"**Game Request Generated Successfully!**\n\n"
+                f"**Link:** {game_link}\n"
+                f"**Password:** {game_password if game_password else 'No password required'}"
+            )
+        else:
+            response_message = "Failed to generate the game request. Please check the configuration and try again."
+
+        await interaction.followup.send(response_message, ephemeral=True)
+    except Exception as e:
+        logging.error(f"Error in /gamerequest command: {e}")
+        await interaction.followup.send("An error occurred while processing the game request.", ephemeral=True)
 
 @client.tree.command(name="biglfg", description="Create a cross-server LFG request.")
 async def biglfg(interaction: discord.Interaction):
