@@ -480,7 +480,7 @@ async def generate_tablestream_link(game_data):
     :param game_data: Dictionary containing game details (id, format, player_count).
     :return: Tuple containing (game_link, game_password) or (None, None) on failure.
     """
-    api_url = "https://api.tablestream.com/games"  # Replace with the actual API endpoint
+    api_url = "https://api.table-stream.com/create-room"  # Replace with the actual API endpoint
     token_bearer = os.environ.get("TABLESTREAM_BEARER_TOKEN")  # Fetch the token from environment variables
 
     if not token_bearer:
