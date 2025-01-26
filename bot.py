@@ -1,23 +1,20 @@
-import os
-import re
+import asyncio
+import discord
+import aiohttp
 import json
+import os
+import logging
 import uuid
 import time
-import logging
-import asyncio
+import requests
+import re
 from enum import Enum
-from datetime import datetime, timedelta
-
-import discord
 from discord.ext import commands
 from discord.ext.commands import has_permissions
 from discord.ui import Button, View
-
-import aiohttp
-from aiohttp_retry import RetryClient, ExponentialRetry
-
-import requests
 from cachetools import TTLCache
+from datetime import datetime, timedelta
+from aiohttp_retry import RetryClient, ExponentialRetry
 
 # -------------------------------------------------------------------------
 # Setup and Configuration
