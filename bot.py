@@ -475,14 +475,13 @@ async def lfg_timeout(lfg_uuid):
         logging.error(f"Error in lfg_timeout for LFG UUID {lfg_uuid}: {e}")
 
 # Helper to generate TableStream link
-async def generate_tablestream_link(game_data, creator_name):
+async def generate_tablestream_link(game_creator: str):
     """
-    Generate a TableStream link for Pauper EDH games using the provided game data and return the link and password.
-    :param game_data: Dictionary containing game details (id, format, player_count).
-    :param creator_name: Name of the person who initiated the game.
-    :return: Tuple containing (game_link, game_password) or (None, None) on failure.
+    Generate a TableStream link using the provided game creator's name.
+    :param game_creator: Name of the user who initiated the game.
+    :return: Tuple containing (game_link, None) or (None, None) on failure.
     """
-    api_url = "https://api.table-stream.com/create-room"  # Correct API endpoint
+    api_url = "https://api.table-stream.com/create-room"
     token_bearer = os.environ.get("TABLESTREAM_BEARER_TOKEN")  # Fetch the token from environment variables
 
     if not token_bearer:
@@ -494,38 +493,28 @@ async def generate_tablestream_link(game_data, creator_name):
         "Content-Type": "application/json",
     }
 
-    # Force the game type to Pauper EDH for all requests
-    game_type = "MTGCommander"  # TableStream uses MTGCommander for Pauper EDH
-
-    # Sanitize the creator name and generate a room name
-    sanitized_creator_name = re.sub(r'[^a-zA-Z0-9 ]', '', creator_name)[:50]
-    room_name = f"{sanitized_creator_name}'s Pauper EDH Room" if sanitized_creator_name else "PDH LFG Room"
-
-    # Construct the payload
+    room_name = f"{game_creator}'s Pauper EDH Room"
     payload = {
         "roomName": room_name,
-        "gameType": game_type,
-        "maxPlayers": game_data["player_count"],
+        "gameType": "MTGCommander",
+        "maxPlayers": 4,
         "private": True,
         "initialScheduleTTLInSeconds": 3600,  # 1 hour
     }
 
-    logging.info(f"Preparing to generate TableStream link with payload: {payload}")
-
     try:
+        logging.info(f"Preparing to generate TableStream link with payload: {payload}")
         async with aiohttp.ClientSession() as session:
             async with session.post(api_url, json=payload, headers=headers) as response:
-                if response.status in (200, 201):  # Accept both 200 and 201 as success
+                if response.status == 201:
                     data = await response.json()
                     room = data.get("room", {})
                     game_link = room.get("roomUrl")
-                    game_password = room.get("password")
                     logging.info(f"Generated TableStream game link: {game_link}")
-                    return game_link, game_password
+                    return game_link, None
                 else:
-                    error_message = await response.text()
                     logging.error(f"Failed to generate TableStream link. Status: {response.status}")
-                    logging.error(error_message)
+                    logging.error(await response.text())
                     return None, None
     except Exception as e:
         logging.error(f"Error while generating TableStream link: {e}")
