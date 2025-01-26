@@ -507,7 +507,39 @@ async def generate_tablestream_link(game_data: dict, game_format: GameFormat, pl
     """
     try:
         logging.info(f"Generating TableStream link with game_data: {game_data}, game_format: {game_format}, player_count: {player_count}")
-        # Rest of the function logic...
+
+        # API setup
+        api_url = "https://api.table-stream.com/create-room"
+        token_bearer = os.environ.get("TABLESTREAM_BEARER_TOKEN")
+        if not token_bearer:
+            logging.error("Bearer token for TableStream API is missing!")
+            return None, None
+
+        headers = {
+            "Authorization": f"Bearer {token_bearer}",
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "roomName": f"{game_data['id']} Pauper EDH Room",
+            "gameType": "MTGCommander",
+            "maxPlayers": player_count,
+            "private": True,
+            "initialScheduleTTLInSeconds": 3600  # 1 hour
+        }
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(api_url, json=payload, headers=headers) as response:
+                if response.status == 201:  # HTTP Created
+                    data = await response.json()
+                    room_url = data.get("room", {}).get("roomUrl")
+                    password = data.get("room", {}).get("password")
+                    logging.info(f"Successfully generated TableStream link: {room_url}")
+                    return room_url, password
+                else:
+                    error = await response.json()
+                    logging.error(f"Failed to generate TableStream link. Status: {response.status}, Error: {error}")
+                    return None, None
     except Exception as e:
         logging.error(f"Error while generating TableStream link: {e}")
         return None, None
@@ -873,6 +905,7 @@ async def gamerequest(interaction: discord.Interaction):
         # Generate TableStream link
         game_link, game_password = await generate_tablestream_link(game_data, game_format, player_count)
 
+        # Handle the response
         if game_link:
             response_message = (
                 f"**Game Request Generated Successfully!**\n\n"
