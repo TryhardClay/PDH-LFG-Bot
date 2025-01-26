@@ -13,6 +13,7 @@ from discord.ext.commands import has_permissions
 from discord.ui import Button, View
 from cachetools import TTLCache
 from datetime import datetime, timedelta
+from aiohttp_retry import RetryClient, ExponentialRetry
 
 # -------------------------------------------------------------------------
 # Setup and Configuration
@@ -207,6 +208,15 @@ def save_channel_filters():
 # -------------------------------------------------------------------------
 # Gateway Functions (Text Messages and BigLFG Embeds)
 # -------------------------------------------------------------------------
+
+class TableStreamGameTypes(Enum):
+    MTGCommander = "MTGCommander"
+
+def table_stream_game_type(format: str) -> TableStreamGameTypes:
+    # Always map Pauper EDH to MTGCommander
+    if format == "PAUPER_EDH":
+        return TableStreamGameTypes.MTGCommander
+    raise ValueError(f"Unsupported game format: {format}")
 
 # Text Message Relay
 async def relay_text_message(source_message, destination_channel):
@@ -475,45 +485,31 @@ async def lfg_timeout(lfg_uuid):
         logging.error(f"Error in lfg_timeout for LFG UUID {lfg_uuid}: {e}")
 
 # Helper to generate TableStream link
-async def generate_tablestream_link(game_creator: str) -> tuple[str | None, str | None]:
-    """
-    Generate a TableStream link for a game.
-    :param game_creator: Name of the user creating the game.
-    :return: Tuple containing (game_link, game_password) or (None, None) on failure.
-    """
-    api_url = "https://api.table-stream.com/create-room"  # Correct API endpoint
-    token_bearer = os.environ.get("TABLESTREAM_BEARER_TOKEN")  # Fetch token from environment
-
-    if not token_bearer:
-        logging.error("Bearer token for TableStream API is missing!")
-        return None, None
-
+async def generate_tablestream_link(game_id: str, game_format: str, player_count: int = 4) -> tuple[str | None, str | None]:
     headers = {
-        "Authorization": f"Bearer {token_bearer}",
-        "Content-Type": "application/json"
+        "Authorization": f"Bearer {os.environ['TABLESTREAM_BEARER_TOKEN']}",
+        "Content-Type": "application/json",
     }
-
+    
     payload = {
-        "roomName": f"{game_creator}'s Pauper EDH Room",
-        "gameType": "MTGCommander",
-        "maxPlayers": 4,
-        "private": True,  # Private room requiring a password
-        "initialScheduleTTLInSeconds": 3600,  # 1-hour duration
+        "roomName": f"PDH-{game_id}",
+        "gameType": table_stream_game_type(game_format).value,
+        "maxPlayers": player_count,
+        "private": True,  # Generate password automatically
+        "initialScheduleTTLInSeconds": 3600,  # 1 hour
     }
 
+    retry_options = ExponentialRetry(attempts=5)
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(api_url, json=payload, headers=headers) as response:
-                if response.status == 201:  # HTTP 201 indicates success
+        async with RetryClient(retry_options=retry_options) as client:
+            async with client.post("https://api.table-stream.com/create-room", json=payload, headers=headers) as response:
+                if response.status == 201:
                     data = await response.json()
                     room = data.get("room", {})
-                    game_link = room.get("roomUrl")
-                    game_password = room.get("password")
-                    logging.info(f"Generated TableStream game link: {game_link}")
-                    return game_link, game_password
+                    return room.get("roomUrl"), room.get("password")
                 else:
-                    logging.error(f"Failed to generate TableStream link. Status: {response.status}")
-                    logging.error(await response.text())
+                    error_data = await response.json()
+                    logging.error(f"Failed to generate TableStream link. Status: {response.status}, Error: {error_data}")
                     return None, None
     except Exception as e:
         logging.error(f"Error while generating TableStream link: {e}")
