@@ -8,6 +8,7 @@ import uuid
 import time
 import requests
 import re
+from enum import Enum
 from discord.ext import commands
 from discord.ext.commands import has_permissions
 from discord.ui import Button, View
