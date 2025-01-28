@@ -468,58 +468,57 @@ def create_lfg_view():
     """
     view = discord.ui.View(timeout=15 * 60)  # 15-minute timeout
 
-   async def join_button_callback(button_interaction: discord.Interaction):
-    try:
-        lfg_uuid = None
-        for uuid, data in active_embeds.items():
-            if any(message.id == button_interaction.message.id for message in data["messages"].values()):
-                lfg_uuid = uuid
-                break
+    async def join_button_callback(button_interaction: discord.Interaction):
+        try:
+            lfg_uuid = None
+            for uuid, data in active_embeds.items():
+                if any(message.id == button_interaction.message.id for message in data["messages"].values()):
+                    lfg_uuid = uuid
+                    break
 
-        if not lfg_uuid or lfg_uuid not in active_embeds:
-            await button_interaction.response.send_message("This LFG request is no longer active.", ephemeral=True)
-            return
+            if not lfg_uuid or lfg_uuid not in active_embeds:
+                await button_interaction.response.send_message("This LFG request is no longer active.", ephemeral=True)
+                return
 
-        user_id = button_interaction.user.id
-        display_name = button_interaction.user.name
+            user_id = button_interaction.user.id
+            display_name = button_interaction.user.name
 
-        if user_id not in active_embeds[lfg_uuid]["players"]:
-            active_embeds[lfg_uuid]["players"][user_id] = display_name
-            await update_embeds(lfg_uuid)
+            if user_id not in active_embeds[lfg_uuid]["players"]:
+                active_embeds[lfg_uuid]["players"][user_id] = display_name
+                await update_embeds(lfg_uuid)
 
-        await button_interaction.response.defer()
-    except discord.errors.NotFound:
-        logging.error("Interaction not found. This might be caused by a timeout or invalid interaction.")
+            await button_interaction.response.defer()
+        except discord.errors.NotFound:
+            logging.error("Interaction not found. This might be caused by a timeout or invalid interaction.")
 
+    async def leave_button_callback(button_interaction: discord.Interaction):
+        try:
+            lfg_uuid = None
+            for uuid, data in active_embeds.items():
+                if any(message.id == button_interaction.message.id for message in data["messages"].values()):
+                    lfg_uuid = uuid
+                    break
 
-async def leave_button_callback(button_interaction: discord.Interaction):
-    try:
-        lfg_uuid = None
-        for uuid, data in active_embeds.items():
-            if any(message.id == button_interaction.message.id for message in data["messages"].values()):
-                lfg_uuid = uuid
-                break
+            if not lfg_uuid or lfg_uuid not in active_embeds:
+                await button_interaction.response.send_message("This LFG request is no longer active.", ephemeral=True)
+                return
 
-        if not lfg_uuid or lfg_uuid not in active_embeds:
-            await button_interaction.response.send_message("This LFG request is no longer active.", ephemeral=True)
-            return
+            user_id = button_interaction.user.id
 
-        user_id = button_interaction.user.id
+            if user_id in active_embeds[lfg_uuid]["players"]:
+                del active_embeds[lfg_uuid]["players"][user_id]
+                await update_embeds(lfg_uuid)
 
-        if user_id in active_embeds[lfg_uuid]["players"]:
-            del active_embeds[lfg_uuid]["players"][user_id]
-            await update_embeds(lfg_uuid)
+                # Restart timeout if player count falls below four
+                if len(active_embeds[lfg_uuid]["players"]) < 4:
+                    task = active_embeds[lfg_uuid].get("task")
+                    if not task or task.done():
+                        active_embeds[lfg_uuid]["task"] = asyncio.create_task(lfg_timeout(lfg_uuid))
+                        logging.info(f"Timeout task restarted for LFG UUID {lfg_uuid} as the player count fell below four.")
 
-            # Restart timeout if player count falls below four
-            if len(active_embeds[lfg_uuid]["players"]) < 4:
-                task = active_embeds[lfg_uuid].get("task")
-                if not task or task.done():
-                    active_embeds[lfg_uuid]["task"] = asyncio.create_task(lfg_timeout(lfg_uuid))
-                    logging.info(f"Timeout task restarted for LFG UUID {lfg_uuid} as the player count fell below four.")
-
-        await button_interaction.response.defer()
-    except discord.errors.NotFound:
-        logging.error("Interaction not found. This might be caused by a timeout or invalid interaction.")
+            await button_interaction.response.defer()
+        except discord.errors.NotFound:
+            logging.error("Interaction not found. This might be caused by a timeout or invalid interaction.")
 
     join_button = discord.ui.Button(style=discord.ButtonStyle.success, label="JOIN")
     leave_button = discord.ui.Button(style=discord.ButtonStyle.danger, label="LEAVE")
@@ -531,7 +530,7 @@ async def leave_button_callback(button_interaction: discord.Interaction):
     view.add_item(leave_button)
 
     return view
-    
+
 # Helper for timeout handling of BigLFG requests
 async def lfg_timeout(lfg_uuid):
     """
