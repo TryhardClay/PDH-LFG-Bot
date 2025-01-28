@@ -376,16 +376,21 @@ async def update_embeds(lfg_uuid):
         players = data["players"]
         is_game_ready = len(players) == 4
 
-        # Generate the Table Stream link once and reuse it
+        # Generate the Table Stream link only once
         if is_game_ready and "game_link" not in data:
+            logging.info("Generating Table Stream link for the first time...")
             game_data = {"id": str(uuid.uuid4())}
             game_format = GameFormat.PAUPER_EDH
             player_count = 4
             game_link, game_password = await generate_tablestream_link(game_data, game_format, player_count)
 
             if game_link:
-                data["game_link"] = game_link  # Store the generated game link
+                data["game_link"] = game_link  # Store the game link
                 data["game_password"] = game_password  # Store the password
+            else:
+                logging.error("Failed to generate Table Stream link.")
+                data["game_link"] = "Error generating game link"
+                data["game_password"] = None
 
         for channel_id, message in data["messages"].items():
             try:
@@ -409,19 +414,12 @@ async def update_embeds(lfg_uuid):
                 )
 
                 if is_game_ready:
-                    # Add the Table Stream link
-                    if "game_link" in data:
-                        embed.add_field(
-                            name="Table Stream Game:",
-                            value=f"[Click this link to join your Table Stream game.]({data['game_link']})",
-                            inline=False
-                        )
-                    else:
-                        embed.add_field(
-                            name="Table Stream Game:",
-                            value="Failed to generate Table Stream link.",
-                            inline=False
-                        )
+                    # Add the Table Stream game link to the embed
+                    embed.add_field(
+                        name="Table Stream Game:",
+                        value=f"[Click this link to join your Table Stream game.]({data['game_link']})",
+                        inline=False
+                    )
 
                     # Add Spelltable prompt
                     embed.add_field(name="Spelltable:", value="**Or link your own Spelltable link below...**", inline=False)
