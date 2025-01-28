@@ -374,8 +374,6 @@ async def update_embeds(lfg_uuid):
 
         data = active_embeds[lfg_uuid]
         players = data["players"]
-
-        player_list = "\n".join([f"{i + 1}. {name}" for i, name in enumerate(players.values())]) if players else "Empty"
         is_game_ready = len(players) == 4
 
         for channel_id, message in data["messages"].items():
@@ -383,31 +381,56 @@ async def update_embeds(lfg_uuid):
                 embed = discord.Embed(
                     title="Your game is ready!" if is_game_ready else "Looking for more players...",
                     color=discord.Color.green() if is_game_ready else discord.Color.yellow(),
-                    description="Click this link to join your game." if is_game_ready else f"React below ({4 - len(players)} players needed)"
+                    description="Click this link to join your Table Stream game." if is_game_ready else f"React below ({4 - len(players)} players needed)",
                 )
                 embed.set_author(
                     name="PDH LFG Bot",
-                    icon_url=IMAGE_URL,  # Include the image in the author section
+                    icon_url=IMAGE_URL,
                     url="https://github.com/TryhardClay/PDH-LFG-Bot"
                 )
                 if not is_game_ready:
-                    embed.set_thumbnail(url=IMAGE_URL)  # Retain thumbnail until the game is ready
-                embed.add_field(name="Players:", value=player_list, inline=False)
+                    embed.set_thumbnail(url=IMAGE_URL)
+                embed.add_field(name="Players:", value="\n".join([f"{i + 1}. {name}" for i, name in enumerate(players.values())]), inline=False)
 
                 if is_game_ready:
-                    # Add the game link to the embed
-                    game_request_link = f"[Join the game room here](https://tablestream.com/game/{lfg_uuid})"
-                    embed.add_field(name="Game Room:", value=game_request_link, inline=False)
+                    # Generate TableStream link
+                    game_data = {"id": str(uuid.uuid4())}
+                    game_format = GameFormat.PAUPER_EDH
+                    player_count = 4
+                    game_link, game_password = await generate_tablestream_link(game_data, game_format, player_count)
 
-                    # Remove buttons if the game is ready
-                    view = discord.ui.View()
-                    await message.edit(view=view)
+                    # Add the TableStream link to the embed
+                    if game_link:
+                        embed.add_field(name="Table Stream Game:", value=f"[Click this link to join your Table Stream game.]({game_link})", inline=False)
+                    else:
+                        embed.add_field(name="Table Stream Game:", value="Failed to generate Table Stream link.", inline=False)
 
-                    # Cancel the timeout task since the game is ready
+                    # Add Spelltable prompt
+                    embed.add_field(name="Spelltable:", value="**Or link your own Spelltable link below...**", inline=False)
+
+                    # Cancel the timeout task
                     task = data.pop("task", None)
                     if task and not task.done():
                         task.cancel()
                         logging.info(f"Timeout task canceled for LFG UUID {lfg_uuid} as the game is ready.")
+
+                    # DM all players
+                    for user_id in players:
+                        try:
+                            user = await client.fetch_user(user_id)
+                            if user:
+                                # Link to the original message in the server
+                                message_link = f"https://discord.com/channels/{message.guild.id}/{message.channel.id}/{message.id}"
+                                dm_content = (
+                                    f"**Your game is ready!**\n\n"
+                                    f"**Table Stream Link:** {game_link}\n"
+                                    f"**Password:** {game_password}\n\n"
+                                    f"You can also view the game request message here: [Click to view the message.]({message_link})"
+                                )
+                                await user.send(dm_content)
+                                logging.info(f"DM sent to {user.name} (ID: {user.id}).")
+                        except Exception as e:
+                            logging.error(f"Failed to DM player {user_id}: {e}")
 
                 await message.edit(embed=embed)
 
