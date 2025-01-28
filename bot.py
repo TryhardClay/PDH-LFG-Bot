@@ -376,22 +376,25 @@ async def update_embeds(lfg_uuid):
         players = data["players"]
         is_game_ready = len(players) == 4
 
-        # Generate the Table Stream link only once
+        # Generate the Table Stream link only once and reuse it
         if is_game_ready and "game_link" not in data:
             logging.info("Generating Table Stream link for the first time...")
             game_data = {"id": str(uuid.uuid4())}
             game_format = GameFormat.PAUPER_EDH
             player_count = 4
+
+            # Call API only once
             game_link, game_password = await generate_tablestream_link(game_data, game_format, player_count)
 
             if game_link:
-                data["game_link"] = game_link  # Store the game link
+                data["game_link"] = game_link  # Store the generated game link
                 data["game_password"] = game_password  # Store the password
             else:
                 logging.error("Failed to generate Table Stream link.")
                 data["game_link"] = "Error generating game link"
                 data["game_password"] = None
 
+        # Update all embeds with the player list, Table Stream link, and other information
         for channel_id, message in data["messages"].items():
             try:
                 embed = discord.Embed(
@@ -414,7 +417,7 @@ async def update_embeds(lfg_uuid):
                 )
 
                 if is_game_ready:
-                    # Add the Table Stream game link to the embed
+                    # Add the Table Stream link to the embed
                     embed.add_field(
                         name="Table Stream Game:",
                         value=f"[Click this link to join your Table Stream game.]({data['game_link']})",
@@ -434,23 +437,25 @@ async def update_embeds(lfg_uuid):
                         task.cancel()
                         logging.info(f"Timeout task canceled for LFG UUID {lfg_uuid} as the game is ready.")
 
-                    # DM all players with the Table Stream link and password
-                    for user_id in players:
-                        try:
-                            user = await client.fetch_user(user_id)
-                            if user:
-                                # Link to the original message in the server
-                                message_link = f"https://discord.com/channels/{message.guild.id}/{message.channel.id}/{message.id}"
-                                dm_content = (
-                                    f"**Your game is ready!**\n\n"
-                                    f"**Table Stream Link:** {data['game_link']}\n"
-                                    f"**Password:** {data['game_password']}\n\n"
-                                    f"You can also view the game request message here: [Click to view the message.]({message_link})"
-                                )
-                                await user.send(dm_content)
-                                logging.info(f"DM sent to {user.name} (ID: {user.id}).")
-                        except Exception as e:
-                            logging.error(f"Failed to DM player {user_id}: {e}")
+                    # Send DMs to all players with the same game link and password
+                    if "dm_sent" not in data or not data["dm_sent"]:  # Ensure DMs are only sent once
+                        for user_id in players:
+                            try:
+                                user = await client.fetch_user(user_id)
+                                if user:
+                                    # Link to the original message in the server
+                                    message_link = f"https://discord.com/channels/{message.guild.id}/{message.channel.id}/{message.id}"
+                                    dm_content = (
+                                        f"**Your game is ready!**\n\n"
+                                        f"**Table Stream Link:** {data['game_link']}\n"
+                                        f"**Password:** {data['game_password']}\n\n"
+                                        f"You can also view the game request message here: [Click to view the message.]({message_link})"
+                                    )
+                                    await user.send(dm_content)
+                                    logging.info(f"DM sent to {user.name} (ID: {user.id}).")
+                            except Exception as e:
+                                logging.error(f"Failed to DM player {user_id}: {e}")
+                        data["dm_sent"] = True  # Mark DMs as sent
 
                 await message.edit(embed=embed)
 
