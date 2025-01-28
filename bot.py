@@ -376,12 +376,22 @@ async def update_embeds(lfg_uuid):
         players = data["players"]
         is_game_ready = len(players) == 4
 
+        # Generate the Table Stream link once and reuse it
+        if is_game_ready and "game_link" not in data:
+            game_data = {"id": str(uuid.uuid4())}
+            game_format = GameFormat.PAUPER_EDH
+            player_count = 4
+            game_link, game_password = await generate_tablestream_link(game_data, game_format, player_count)
+
+            if game_link:
+                data["game_link"] = game_link  # Store the generated game link
+                data["game_password"] = game_password  # Store the password
+
         for channel_id, message in data["messages"].items():
             try:
                 embed = discord.Embed(
                     title="Your game is ready!" if is_game_ready else "Looking for more players...",
                     color=discord.Color.green() if is_game_ready else discord.Color.yellow(),
-                    description="Click this link to join your Table Stream game." if is_game_ready else f"React below ({4 - len(players)} players needed)",
                 )
                 embed.set_author(
                     name="PDH LFG Bot",
@@ -390,23 +400,35 @@ async def update_embeds(lfg_uuid):
                 )
                 if not is_game_ready:
                     embed.set_thumbnail(url=IMAGE_URL)
-                embed.add_field(name="Players:", value="\n".join([f"{i + 1}. {name}" for i, name in enumerate(players.values())]), inline=False)
+
+                # Add the player list
+                embed.add_field(
+                    name="Players:",
+                    value="\n".join([f"{i + 1}. {name}" for i, name in enumerate(players.values())]),
+                    inline=False
+                )
 
                 if is_game_ready:
-                    # Generate TableStream link
-                    game_data = {"id": str(uuid.uuid4())}
-                    game_format = GameFormat.PAUPER_EDH
-                    player_count = 4
-                    game_link, game_password = await generate_tablestream_link(game_data, game_format, player_count)
-
-                    # Add the TableStream link to the embed
-                    if game_link:
-                        embed.add_field(name="Table Stream Game:", value=f"[Click this link to join your Table Stream game.]({game_link})", inline=False)
+                    # Add the Table Stream link
+                    if "game_link" in data:
+                        embed.add_field(
+                            name="Table Stream Game:",
+                            value=f"[Click this link to join your Table Stream game.]({data['game_link']})",
+                            inline=False
+                        )
                     else:
-                        embed.add_field(name="Table Stream Game:", value="Failed to generate Table Stream link.", inline=False)
+                        embed.add_field(
+                            name="Table Stream Game:",
+                            value="Failed to generate Table Stream link.",
+                            inline=False
+                        )
 
                     # Add Spelltable prompt
                     embed.add_field(name="Spelltable:", value="**Or link your own Spelltable link below...**", inline=False)
+
+                    # Remove buttons
+                    view = discord.ui.View()
+                    await message.edit(view=view)
 
                     # Cancel the timeout task
                     task = data.pop("task", None)
@@ -414,7 +436,7 @@ async def update_embeds(lfg_uuid):
                         task.cancel()
                         logging.info(f"Timeout task canceled for LFG UUID {lfg_uuid} as the game is ready.")
 
-                    # DM all players
+                    # DM all players with the Table Stream link and password
                     for user_id in players:
                         try:
                             user = await client.fetch_user(user_id)
@@ -423,8 +445,8 @@ async def update_embeds(lfg_uuid):
                                 message_link = f"https://discord.com/channels/{message.guild.id}/{message.channel.id}/{message.id}"
                                 dm_content = (
                                     f"**Your game is ready!**\n\n"
-                                    f"**Table Stream Link:** {game_link}\n"
-                                    f"**Password:** {game_password}\n\n"
+                                    f"**Table Stream Link:** {data['game_link']}\n"
+                                    f"**Password:** {data['game_password']}\n\n"
                                     f"You can also view the game request message here: [Click to view the message.]({message_link})"
                                 )
                                 await user.send(dm_content)
@@ -446,7 +468,8 @@ def create_lfg_view():
     """
     view = discord.ui.View(timeout=15 * 60)  # 15-minute timeout
 
-    async def join_button_callback(button_interaction: discord.Interaction):
+   async def join_button_callback(button_interaction: discord.Interaction):
+    try:
         lfg_uuid = None
         for uuid, data in active_embeds.items():
             if any(message.id == button_interaction.message.id for message in data["messages"].values()):
@@ -460,14 +483,17 @@ def create_lfg_view():
         user_id = button_interaction.user.id
         display_name = button_interaction.user.name
 
-        # Add the user if they are not already in the player list
         if user_id not in active_embeds[lfg_uuid]["players"]:
             active_embeds[lfg_uuid]["players"][user_id] = display_name
             await update_embeds(lfg_uuid)
 
         await button_interaction.response.defer()
+    except discord.errors.NotFound:
+        logging.error("Interaction not found. This might be caused by a timeout or invalid interaction.")
 
-    async def leave_button_callback(button_interaction: discord.Interaction):
+
+async def leave_button_callback(button_interaction: discord.Interaction):
+    try:
         lfg_uuid = None
         for uuid, data in active_embeds.items():
             if any(message.id == button_interaction.message.id for message in data["messages"].values()):
@@ -480,12 +506,11 @@ def create_lfg_view():
 
         user_id = button_interaction.user.id
 
-        # Remove the user if they are in the player list
         if user_id in active_embeds[lfg_uuid]["players"]:
             del active_embeds[lfg_uuid]["players"][user_id]
             await update_embeds(lfg_uuid)
 
-            # If the player count falls below four and the timeout task was canceled, restart it
+            # Restart timeout if player count falls below four
             if len(active_embeds[lfg_uuid]["players"]) < 4:
                 task = active_embeds[lfg_uuid].get("task")
                 if not task or task.done():
@@ -493,6 +518,8 @@ def create_lfg_view():
                     logging.info(f"Timeout task restarted for LFG UUID {lfg_uuid} as the player count fell below four.")
 
         await button_interaction.response.defer()
+    except discord.errors.NotFound:
+        logging.error("Interaction not found. This might be caused by a timeout or invalid interaction.")
 
     join_button = discord.ui.Button(style=discord.ButtonStyle.success, label="JOIN")
     leave_button = discord.ui.Button(style=discord.ButtonStyle.danger, label="LEAVE")
