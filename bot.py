@@ -310,11 +310,12 @@ async def relay_text_message(source_message, destination_channel):
         relay_channel_id = str(destination_channel.id)
         relay_message_id = str(relayed_message.id)
 
-        # Update the message_map
+        # Update the message_map with the user ID included
         if original_id not in message_map:
             message_map[original_id] = {
                 "original_channel_id": str(source_message.channel.id),
-                "relayed_messages": []
+                "relayed_messages": [],
+                "user_id": str(source_message.author.id)  # Track user ID
             }
         message_map[original_id]["relayed_messages"].append({
             "channel_id": relay_channel_id,
@@ -691,9 +692,30 @@ async def on_message(message):
     """
     Handles new text messages and propagates them across connected channels.
     Ensures attribution to the original author and respects channel filters.
+    Also blocks messages from banned users.
     """
     if message.author == client.user or message.webhook_id:
         return  # Ignore bot messages and webhook messages
+
+    user_id = str(message.author.id)
+
+    # Check if the user is banned
+    if user_id in banned_users:
+        logging.warning(f"Blocked message from banned user {message.author.name} (ID: {user_id}) in {message.channel.name}")
+
+        # Delete the message and inform the user (ephemeral error message)
+        try:
+            await message.delete()
+            await message.author.send(
+                f"Your message in **{message.guild.name} - {message.channel.name}** was blocked because you are currently banned.\n"
+                f"**Reason:** {banned_users[user_id]['reason']}\n"
+                f"{'Your ban will expire in 3 days.' if banned_users[user_id]['expiration'] else 'This is a permanent ban.'}\n\n"
+                f"For appeals, contact the server admin, or reach out to Clay (User ID: 582548598584115211) on Discord."
+            )
+        except Exception as e:
+            logging.error(f"Failed to block and notify banned user {message.author.name}: {e}")
+
+        return  # Prevent relaying of banned messages
 
     source_channel_id = f'{message.guild.id}_{message.channel.id}'
     if source_channel_id in WEBHOOK_URLS:
