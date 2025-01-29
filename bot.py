@@ -1211,7 +1211,7 @@ async def banuser(interaction: discord.Interaction, user: discord.User, reason: 
     # DM the banned user
     try:
         dm_message = (
-            f"You have been **{ban_type} banned** from interacting with bot-controlled channels.\n"
+            f"You have been issued a **{ban_type} Ban** which will prevent you from interacting within bot-controlled channels.\n"
             f"**Reason:** {reason}\n"
             f"{'Your ban will expire in 3 days.' if ban_expiration else 'Your ban is permanent until reviewed.'}\n\n"
             f"For appeals, inform the server admin, reach out to Clay (User ID: 582548598584115211) on Discord, "
