@@ -984,12 +984,12 @@ async def about(interaction: discord.Interaction):
             inline=False
         )
         embed.add_field(
-            name="/banuser (admin)",
+            name="/banuser (restricted)",
             value="Bans a specified user from using the bot's services across all connected servers. Requires admin permissions.",
             inline=False
         )
         embed.add_field(
-            name="/unbanuser (admin)",
+            name="/unbanuser (restricted)",
             value="Removes a user from the bot’s ban list, restoring their access to its services. Requires admin permissions.",
             inline=False
         )
