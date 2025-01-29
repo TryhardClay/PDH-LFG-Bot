@@ -823,11 +823,12 @@ async def manage_role(guild):
 # Commands
 # -------------------------------------------------------------------------
 
-@client.tree.command(name="setchannel", description="Set the channel for cross-server communication.")
-@has_permissions(manage_channels=True)
+@client.tree.command(name="setchannel", description="Set the channel for cross-server communication. (admin)")
+@commands.has_permissions(administrator=True)
 async def setchannel(interaction: discord.Interaction, channel: discord.TextChannel, filter: str):
     """
     Assign a channel for cross-server communication and apply a filter.
+    Only available to server administrators.
     """
     filter = filter.lower()
     if filter not in ("casual", "cpdh"):
@@ -843,12 +844,12 @@ async def setchannel(interaction: discord.Interaction, channel: discord.TextChan
         f"Cross-server communication channel set to {channel.mention} with filter '{filter}'.", ephemeral=True
     )
 
-
-@client.tree.command(name="disconnect", description="Disconnect a channel from cross-server communication.")
-@has_permissions(manage_channels=True)
+@client.tree.command(name="disconnect", description="Disconnect a channel from cross-server communication. (admin)")
+@commands.has_permissions(administrator=True)
 async def disconnect(interaction: discord.Interaction, channel: discord.TextChannel):
     """
     Remove a channel from the cross-server communication network.
+    Only available to server administrators.
     """
     channel_id = f'{interaction.guild.id}_{channel.id}'
     if channel_id in WEBHOOK_URLS:
@@ -859,7 +860,6 @@ async def disconnect(interaction: discord.Interaction, channel: discord.TextChan
     else:
         await interaction.response.send_message(f"{channel.mention} is not connected to cross-server communication.",
                                                 ephemeral=True)
-
 
 @client.tree.command(name="listconnections", description="List connected channels for cross-server communication.")
 @has_permissions(manage_channels=True)
@@ -881,15 +881,15 @@ async def listconnections(interaction: discord.Interaction):
         logging.error(f"Error listing connections: {e}")
         await interaction.response.send_message("An error occurred while listing connections.", ephemeral=True)
 
-@client.tree.command(name="updateconfig", description="Reload the bot's configuration and resync commands.")
-@has_permissions(administrator=True)
+@client.tree.command(name="updateconfig", description="Reload the bot's configuration and resync commands. (admin)")
+@commands.has_permissions(administrator=True)
 async def updateconfig(interaction: discord.Interaction):
     """
     Reload the bot's configuration from persistent storage, resynchronize commands,
     and provide feedback on updates.
+    Only available to server administrators.
     """
     try:
-        # Acknowledge the interaction immediately to avoid expiration
         await interaction.response.defer(ephemeral=True)
 
         # Reload configuration files
@@ -900,7 +900,6 @@ async def updateconfig(interaction: discord.Interaction):
         # Resynchronize the command tree
         await client.tree.sync()
 
-        # Send follow-up message indicating success
         await interaction.followup.send(
             "Configuration reloaded successfully and command tree synchronized!",
             ephemeral=True
