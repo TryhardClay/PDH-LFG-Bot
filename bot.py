@@ -913,26 +913,89 @@ async def updateconfig(interaction: discord.Interaction):
             ephemeral=True
         )
 
-@client.tree.command(name="about", description="Show information about the bot and its commands.")
+@client.tree.command(name="about", description="Show information about the bot, its rules, and available commands.")
 async def about(interaction: discord.Interaction):
     """
-    Display details about the bot and its available commands.
+    Display details about the bot, its rules, and its available commands.
     """
     try:
         embed = discord.Embed(
-            title="Cross-Server Communication Bot",
-            description="This bot allows you to connect channels in different servers to relay messages and facilitate communication.",
+            title="📢 PDH LFG Bot Information",
+            description="This bot facilitates cross-server communication and game coordination for Pauper EDH games. "
+                        "Below, you'll find the rules for participation and details on available commands.",
             color=discord.Color.blue()
         )
-        embed.add_field(name="/setchannel",
-                        value="Set a channel for cross-server communication and assign a filter ('casual' or 'cpdh').",
-                        inline=False)
-        embed.add_field(name="/disconnect", value="Disconnect a channel from cross-server communication.",
-                        inline=False)
-        embed.add_field(name="/listconnections", value="List all connected channels and their filters.", inline=False)
-        embed.add_field(name="/updateconfig", value="Reload the bot's configuration and sync updates.", inline=False)
-        embed.add_field(name="/biglfg", value="Create a cross-server LFG request.", inline=False)
+
+        # Add Rules Section
+        embed.add_field(
+            name="📜 Rules & Guidelines",
+            value=(
+                "**Be Respectful**: Communicate in a friendly and considerate manner. Harassment, hate speech, excessive negativity, "
+                "or any form of toxicity will not be tolerated. Violating this rule will result in a permanent ban.\n\n"
+                "**No Spamming**: Avoid excessive use of commands, reactions, or unnecessary messages that disrupt conversations. "
+                "Repeated violations may lead to temporary suspensions or permanent restrictions.\n\n"
+                "**Follow Server Rules**: Each server has its own guidelines. Ensure you comply with them. Violations may result in "
+                "removal from bot access or further disciplinary actions.\n\n"
+                "**Use Commands Responsibly**: The `/biglfg` command and other bot features should be used for genuine game coordination. "
+                "Misuse for trolling, false game requests, or disruption will result in revoked access.\n\n"
+                "**Report Issues**: If you encounter technical issues, bugs, or suspicious behavior, notify a server administrator. "
+                "You may also report concerns to _clay_ (User ID: 582548598584115211) on Discord or email **gaming4tryhards@gmail.com**.\n\n"
+                "**⚠️ Compliance Failure**: Users who repeatedly violate the rules may be subject to temporary suspensions, "
+                "permanent restrictions, or a full ban from the bot’s services."
+            ),
+            inline=False
+        )
+
+        # Add Command List (Prioritized Order)
+        embed.add_field(name="🔹 **Commands & Features**", value="Below is a list of available commands:", inline=False)
+
+        # Most Important & Public Commands First
+        embed.add_field(
+            name="/biglfg",
+            value="Creates a cross-server LFG request for Pauper EDH games. Allows players to join and dynamically updates when "
+                  "the required number of players is met.",
+            inline=False
+        )
+        embed.add_field(
+            name="/listconnections",
+            value="Lists all connected channels across servers, displaying their associated filters.",
+            inline=False
+        )
+        embed.add_field(
+            name="/gamerequest",
+            value="Generates a test Table Stream game request to verify API integration. Useful for debugging purposes.",
+            inline=False
+        )
+
+        # Admin-Only Commands
+        embed.add_field(
+            name="/setchannel (admin)",
+            value="Assigns a channel for cross-server communication and applies a game filter ('casual' or 'cpdh'). Requires admin permissions.",
+            inline=False
+        )
+        embed.add_field(
+            name="/disconnect (admin)",
+            value="Removes a channel from cross-server communication, preventing further relay of messages. Requires admin permissions.",
+            inline=False
+        )
+        embed.add_field(
+            name="/updateconfig (admin)",
+            value="Reloads the bot's configuration and resynchronizes command functionality. Requires admin permissions.",
+            inline=False
+        )
+        embed.add_field(
+            name="/banuser (admin)",
+            value="Bans a specified user from using the bot's services across all connected servers. Requires admin permissions.",
+            inline=False
+        )
+        embed.add_field(
+            name="/unbanuser (admin)",
+            value="Removes a user from the bot’s ban list, restoring their access to its services. Requires admin permissions.",
+            inline=False
+        )
+
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
     except Exception as e:
         logging.error(f"Error in /about command: {e}")
         await interaction.response.send_message("An error occurred while processing the command.", ephemeral=True)
