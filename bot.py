@@ -1039,7 +1039,7 @@ async def about(interaction: discord.Interaction):
             value=(
                 "**/banuser (restricted)** - Ban a user from posting in bot-controlled channels and using commands.\n"
                 "**/unbanuser (restricted)** - Unban a previously banned user.\n"
-                "**/listbans (restricted)** - Display a list of currently banned users along with their details."
+                "**/listbans (restricted)** - Display a list of currently banned users along with their details.\n"
                 "**/listadmins (restricted)** - Display a list of current bot admins."
             ),
             inline=False
