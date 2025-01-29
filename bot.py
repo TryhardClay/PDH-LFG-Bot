@@ -1028,6 +1028,7 @@ async def about(interaction: discord.Interaction):
                 "3️⃣ **Follow Server Guidelines** - Abide by each server's unique rules while using this bot.\n"
                 "4️⃣ **No Spamming** - Avoid excessive message spam, command misuse, or abuse of LFG features.\n"
                 "5️⃣ **Report Issues** - If you encounter issues, inform the server admin, reach out to **Clay** (User ID: 582548598584115211) on Discord, or email: **gaming4tryhards@gmail.com**\n\n"
+                "6️⃣ **No Poaching Users** - This bot is designed to bridge the gap between servers and not as a tool to grow your empire.\n"
                 "**🚨 Compliance Failure:** Breaking these rules may result in a user ID ban."
             ),
             inline=False
