@@ -1113,6 +1113,25 @@ async def biglfg(interaction: discord.Interaction):
     Handles the creation and propagation of BigLFG embeds across connected servers
     with rate-limit handling for multiple destinations.
     """
+    # Check if the user is banned
+    user_id = str(interaction.user.id)
+    if user_id in banned_users:
+        logging.warning(f"Banned user {interaction.user.name} (ID: {user_id}) attempted to use /biglfg.")
+        await interaction.response.send_message(
+            "You are currently banned from using this command. Please contact an admin if you believe this is an error.",
+            ephemeral=True
+        )
+        # DM the user to notify them of their restriction
+        try:
+            await interaction.user.send(
+                "You attempted to use the /biglfg command but are currently banned from using it. "
+                "Please contact an admin to resolve this issue."
+            )
+        except Exception as e:
+            logging.error(f"Failed to send DM to banned user {interaction.user.name} (ID: {user_id}): {e}")
+        return
+
+    # Proceed with the normal /biglfg functionality if the user is not banned
     try:
         await interaction.response.defer()
 
