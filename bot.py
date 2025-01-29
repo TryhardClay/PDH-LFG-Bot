@@ -947,7 +947,8 @@ async def about(interaction: discord.Interaction):
             value=(
                 "- **/biglfg** - Create a cross-server LFG request.\n"
                 "- **/about** - Show bot information and commands.\n"
-                "- **/gamerequest** - Generate a TableStream test game.\n"
+                "- **/gamerequest** - Generate an personal TableStream game link.\n"
+                "- **/listconnections** - List connected channels for cross-server communication.\n"
             ),
             inline=False
         )
@@ -957,8 +958,7 @@ async def about(interaction: discord.Interaction):
             value=(
                 "- **/setchannel (admin)** - Set a channel for cross-server communication.\n"
                 "- **/disconnect (admin)** - Remove a channel from cross-server communication.\n"
-                "- **/listconnections** - List connected channels for cross-server communication.\n"
-                "- **/updateconfig (admin)** - Reload bot configuration and resync commands.\n"
+                "- **/updateconfig (admin)** - A manual reload of the bot configuration and commands.\n"
                 "- **/banuser (restricted)** - Ban a user from using bot services.\n"
                 "- **/unbanuser (restricted)** - Unban a previously banned user.\n"
             ),
