@@ -40,6 +40,8 @@ TOKEN = os.environ.get('TOKEN')
 # Persistent storage paths
 PERSISTENT_DATA_PATH = '/var/data/webhooks.json'
 CHANNEL_FILTERS_PATH = '/var/data/channel_filters.json'
+BANNED_USERS_PATH = "/var/data/banned_users.json"
+TRUSTED_ADMINS_PATH = "/var/data/trusted_admins.json"
 
 # Add the IMAGE_URL variable here
 IMAGE_URL = "https://raw.githubusercontent.com/TryhardClay/PDH-LFG-Bot/main/PDHBot.jpg"
@@ -133,6 +135,58 @@ def load_channel_filters():
     except json.decoder.JSONDecodeError as e:
         logging.error(f"Error decoding JSON from {CHANNEL_FILTERS_PATH}: {e}")
         return {}
+
+# Load banned users from persistent storage
+def load_banned_users():
+    try:
+        with open(BANNED_USERS_PATH, "r") as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                return data
+            else:
+                logging.error(f"Invalid data format in {BANNED_USERS_PATH}")
+                return {}
+    except FileNotFoundError:
+        return {}  # Initialize if the file doesn't exist
+    except json.decoder.JSONDecodeError as e:
+        logging.error(f"Error decoding JSON from {BANNED_USERS_PATH}: {e}")
+        return {}
+
+# Load trusted admins from persistent storage
+def load_trusted_admins():
+    try:
+        with open(TRUSTED_ADMINS_PATH, "r") as f:
+            data = json.load(f)
+            if isinstance(data, list):
+                return data
+            else:
+                logging.error(f"Invalid data format in {TRUSTED_ADMINS_PATH}")
+                return []
+    except FileNotFoundError:
+        return []  # Initialize if the file doesn't exist
+    except json.decoder.JSONDecodeError as e:
+        logging.error(f"Error decoding JSON from {TRUSTED_ADMINS_PATH}: {e}")
+        return []
+
+# Save banned users to persistent storage
+def save_banned_users():
+    try:
+        with open(BANNED_USERS_PATH, "w") as f:
+            json.dump(banned_users, f, indent=4)
+    except Exception as e:
+        logging.error(f"Error saving banned users to {BANNED_USERS_PATH}: {e}")
+
+# Save trusted admins to persistent storage
+def save_trusted_admins():
+    try:
+        with open(TRUSTED_ADMINS_PATH, "w") as f:
+            json.dump(trusted_admins, f, indent=4)
+    except Exception as e:
+        logging.error(f"Error saving trusted admins to {TRUSTED_ADMINS_PATH}: {e}")
+
+# Load data on startup
+banned_users = load_banned_users()
+trusted_admins = load_trusted_admins()
 
 class GameFormat(Enum):
     PAUPER_EDH = "Pauper EDH"
@@ -924,51 +978,57 @@ async def updateconfig(interaction: discord.Interaction):
 @client.tree.command(name="about", description="Show information about the bot and its commands.")
 async def about(interaction: discord.Interaction):
     """
-    Display details about the bot, rules, and available commands.
+    Display details about the bot, its available commands, and the rules for use.
     """
     try:
         embed = discord.Embed(
             title="PDH LFG Bot - Information & Commands",
-            description=(
-                "**Welcome to the PDH LFG Bot!**\n\n"
-                "This bot facilitates cross-server communication and game coordination for Pauper EDH.\n"
-                "If you experience issues, inform the server admin, reach out to Clay (User ID: 582548598584115211) on Discord, "
-                "or email: gaming4tryhards@gmail.com.\n"
-            ),
+            description="This bot facilitates cross-server communication and organizes Pauper EDH games.",
             color=discord.Color.blue()
         )
 
+        # 📜 Rules Section
         embed.add_field(
-            name="Rules & Guidelines",
+            name="📜 Rules:",
             value=(
-                "1. **Be Respectful** - Treat all players with respect. Harassment, hate speech, or discrimination will not be tolerated.\n"
-                "2. **No Cheating** - Players must adhere to Pauper EDH deck-building and gameplay rules. Rule violations may result in a ban.\n"
-                "3. **Appropriate Content** - No NSFW content, excessive profanity, or disruptive behavior. Violators will be removed.\n"
-                "4. **Follow Server Rules** - Each server may have additional rules. Abide by them alongside these rules.\n"
-                "**Failure to comply with these rules may result in a user ID ban.**\n"
+                "1️⃣ **Respect Others** - Treat all players with kindness and fairness.\n"
+                "2️⃣ **No Harassment** - Any form of harassment, hate speech, or discrimination will result in bans.\n"
+                "3️⃣ **Follow Server Guidelines** - Abide by each server's unique rules while using this bot.\n"
+                "4️⃣ **No Spamming** - Avoid excessive message spam, command misuse, or abuse of LFG features.\n"
+                "5️⃣ **Report Issues** - If you encounter issues, inform the server admin, reach out to **Clay** (User ID: 582548598584115211) on Discord, or email: **gaming4tryhards@gmail.com**\n\n"
+                "**🚨 Compliance Failure:** Breaking these rules may result in a user ID ban."
             ),
             inline=False
         )
 
+        # 🌎 Public Commands
         embed.add_field(
-            name="Public Commands",
+            name="🌎 Public Commands:",
             value=(
-                "- **/biglfg** - Create a cross-server LFG request.\n"
-                "- **/about** - Show bot information and commands.\n"
-                "- **/gamerequest** - Generate an personal TableStream game link.\n"
-                "- **/listconnections** - List connected channels for cross-server communication.\n"
+                "**/biglfg** - Create a cross-server LFG request with automated game management.\n"
+                "**/about** - View information about the bot and its rules.\n"
             ),
             inline=False
         )
 
+        # 🔐 Admin Commands
         embed.add_field(
-            name="Admin Commands",
+            name="🔐 Admin Commands (Server Admins Only):",
             value=(
-                "- **/setchannel (admin)** - Set a channel for cross-server communication.\n"
-                "- **/disconnect (admin)** - Remove a channel from cross-server communication.\n"
-                "- **/updateconfig (admin)** - A manual reload of the bot configuration and commands.\n"
-                "- **/banuser (restricted)** - Ban a user from using bot services.\n"
-                "- **/unbanuser (restricted)** - Unban a previously banned user.\n"
+                "**/setchannel (admin)** - Set a channel for cross-server communication.\n"
+                "**/disconnect (admin)** - Remove a channel from cross-server communication.\n"
+                "**/updateconfig (admin)** - Reload the bot's configuration and resync commands.\n"
+            ),
+            inline=False
+        )
+
+        # 🚨 Restricted Commands (Super Admins Only)
+        embed.add_field(
+            name="🚨 Restricted Commands (Super Admins Only):",
+            value=(
+                "**/banuser (restricted)** - Ban a user from bot-controlled channels. First ban is temporary (3 days), second ban is permanent.\n"
+                "**/unbanuser (restricted)** - Remove a user from the ban list, restoring access.\n"
+                "**/listbans (restricted)** - View all currently banned users along with reasons and expiration times.\n"
             ),
             inline=False
         )
@@ -1079,6 +1139,104 @@ async def biglfg(interaction: discord.Interaction):
             await interaction.followup.send("An error occurred while processing the BigLFG request.", ephemeral=True)
         except discord.HTTPException as e:
             logging.error(f"Error sending error message: {e}")
+
+@client.tree.command(name="banuser", description="Ban a user from interacting with bot-controlled channels. (restricted)")
+async def banuser(interaction: discord.Interaction, user: discord.Member, reason: str):
+    """
+    Bans a user from interacting with bot-controlled channels.
+    First offense = 3-day temporary ban. Second offense = Permanent ban.
+    """
+    if interaction.user.id not in trusted_admins:
+        logging.warning(f"Unauthorized /banuser attempt by {interaction.user} (ID: {interaction.user.id})")
+        await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
+        return
+
+    user_id = str(user.id)
+    user_name = user.name
+
+    # Determine if the user already served a temporary ban
+    if user_id in banned_users and banned_users[user_id]["expiration"] is not None:
+        ban_expiration = None  # Permanent ban
+        ban_type = "Permanent"
+    else:
+        ban_expiration = int(time.time()) + (3 * 24 * 60 * 60)  # 3 days from now
+        ban_type = "Temporary (3 days)"
+
+    # Store ban data
+    banned_users[user_id] = {
+        "name": user_name,
+        "reason": reason,
+        "expiration": ban_expiration
+    }
+    save_banned_users()
+
+    # Log and send confirmation
+    logging.info(f"{ban_type} ban issued: {user_name} (ID: {user_id}) - Reason: {reason}")
+    await interaction.response.send_message(f"{ban_type} ban issued for {user.mention}.\n**Reason:** {reason}", ephemeral=True)
+
+    # DM the banned user
+    try:
+        dm_message = (
+            f"You have been **{ban_type} banned** from interacting with bot-controlled channels.\n"
+            f"**Reason:** {reason}\n"
+            f"{'Your ban will expire in 3 days.' if ban_expiration else 'Your ban is permanent until reviewed.'}\n\n"
+            f"For appeals, inform the server admin, reach out to Clay (User ID: 582548598584115211) on Discord, "
+            f"or email: gaming4tryhards@gmail.com."
+        )
+        await user.send(dm_message)
+    except Exception as e:
+        logging.error(f"Failed to send ban DM to {user_name}: {e}")
+
+@client.tree.command(name="unbanuser", description="Unban a user from bot-controlled channels. (restricted)")
+async def unbanuser(interaction: discord.Interaction, user: discord.Member):
+    """
+    Unbans a user, restoring access to bot-controlled channels.
+    """
+    if interaction.user.id not in trusted_admins:
+        logging.warning(f"Unauthorized /unbanuser attempt by {interaction.user} (ID: {interaction.user.id})")
+        await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
+        return
+
+    user_id = str(user.id)
+
+    if user_id not in banned_users:
+        await interaction.response.send_message(f"{user.mention} is not currently banned.", ephemeral=True)
+        return
+
+    # Remove user from banned list
+    del banned_users[user_id]
+    save_banned_users()
+
+    logging.info(f"User {user.name} (ID: {user_id}) has been unbanned.")
+    await interaction.response.send_message(f"{user.mention} has been unbanned.", ephemeral=True)
+
+    # DM the unbanned user
+    try:
+        await user.send("You have been unbanned and can now interact in bot-controlled channels again.")
+    except Exception as e:
+        logging.error(f"Failed to send unban DM to {user.name}: {e}")
+
+@client.tree.command(name="listbans", description="List all currently banned users. (restricted)")
+async def listbans(interaction: discord.Interaction):
+    """
+    Lists all users who are currently banned.
+    """
+    if interaction.user.id not in trusted_admins:
+        logging.warning(f"Unauthorized /listbans attempt by {interaction.user} (ID: {interaction.user.id})")
+        await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
+        return
+
+    if not banned_users:
+        await interaction.response.send_message("No users are currently banned.", ephemeral=True)
+        return
+
+    # Generate a ban list message
+    ban_list = "**Banned Users:**\n"
+    for user_id, data in banned_users.items():
+        expiration = f" (Expires: <t:{data['expiration']}:R>)" if data["expiration"] else " (Permanent)"
+        ban_list += f"- **{data['name']}** (ID: {user_id}) - **Reason:** {data['reason']}{expiration}\n"
+
+    await interaction.response.send_message(ban_list, ephemeral=True)
 
 # -------------------------------------------------------------------------
 # Message Relay Loop
