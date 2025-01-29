@@ -988,7 +988,12 @@ async def about(interaction: discord.Interaction):
     try:
         embed = discord.Embed(
             title="PDH LFG Bot - Information & Commands",
-            description="This bot facilitates cross-server communication and organizes Pauper EDH games.",
+             description=(
+                "This bot allows players to connect and coordinate games across different servers "
+                "through shared announcements, player listings, and automated room creation. "
+                "Below are the commands and features available.\n\n"
+                "**Note:** Restricted commands require admin privileges or special access."
+            ),
             color=discord.Color.blue()
         )
 
@@ -1009,9 +1014,10 @@ async def about(interaction: discord.Interaction):
         # 🌎 Public Commands
         embed.add_field(
             name="🌎 Public Commands:",
-            value=(
-                "**/biglfg** - Create a cross-server LFG request with automated game management.\n"
-                "**/about** - View information about the bot and its rules.\n"
+             value=(
+                "**/biglfg** - Create a cross-server LFG request and automatically manage player listings.\n"
+                "**/gamerequest** - Generate a personal TableStream game link.\n"
+                "**/about** - Display details about the bot, commands, and usage."
             ),
             inline=False
         )
@@ -1031,9 +1037,10 @@ async def about(interaction: discord.Interaction):
         embed.add_field(
             name="🚨 Restricted Commands (Super Admins Only):",
             value=(
-                "**/banuser (restricted)** - Ban a user from bot-controlled channels. First ban is temporary (3 days), second ban is permanent.\n"
-                "**/unbanuser (restricted)** - Remove a user from the ban list, restoring access.\n"
-                "**/listbans (restricted)** - View all currently banned users along with reasons and expiration times.\n"
+                "**/banuser (restricted)** - Ban a user from posting in bot-controlled channels and using commands.\n"
+                "**/unbanuser (restricted)** - Unban a previously banned user.\n"
+                "**/listbans (restricted)** - Display a list of currently banned users along with their details."
+                "**/listadmins (restricted)** - Display a list of current bot admins."
             ),
             inline=False
         )
