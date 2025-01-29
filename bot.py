@@ -1238,6 +1238,22 @@ async def listbans(interaction: discord.Interaction):
 
     await interaction.response.send_message(ban_list, ephemeral=True)
 
+@client.tree.command(name="listadmins", description="List all trusted administrators.")
+async def listadmins(interaction: discord.Interaction):
+    """
+    Display all trusted admin user IDs.
+    """
+    try:
+        trusted_admins = load_trusted_admins()
+        if trusted_admins:
+            admin_list = "\n".join([f"- <@{admin_id}>" for admin_id in trusted_admins])
+            await interaction.response.send_message(f"Trusted Admins:\n{admin_list}", ephemeral=True)
+        else:
+            await interaction.response.send_message("No trusted admins found.", ephemeral=True)
+    except Exception as e:
+        logging.error(f"Error retrieving trusted admins: {e}")
+        await interaction.response.send_message("An error occurred while retrieving the list.", ephemeral=True)
+
 # -------------------------------------------------------------------------
 # Message Relay Loop
 # -------------------------------------------------------------------------
