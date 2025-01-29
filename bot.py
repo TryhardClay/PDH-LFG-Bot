@@ -1064,7 +1064,7 @@ async def about(interaction: discord.Interaction):
         embed.add_field(
             name="🚨 Restricted Commands (Super Admins Only):",
             value=(
-                "**/banuser (restricted)** - Ban a user from posting in bot-controlled channels and using commands.\n"
+                "**/banuser (restricted)** - Ban a user by User ID # from posting in bot-controlled channels and using commands.\n"
                 "**/unbanuser (restricted)** - Unban a previously banned user.\n"
                 "**/listbans (restricted)** - Display a list of currently banned users along with their details.\n"
                 "**/listadmins (restricted)** - Display a list of current bot admins."
@@ -1222,7 +1222,7 @@ async def banuser(interaction: discord.Interaction, user: discord.User, reason: 
 
     # Store ban data
     banned_users[user_id] = {
-        "name": user_name,
+        "User ID#": user_name,
         "reason": reason,
         "expiration": ban_expiration
     }
