@@ -153,25 +153,29 @@ def load_banned_users():
         return {}
 
 # Load trusted admins from persistent storage
+# Load trusted admins from persistent storage
 def load_trusted_admins():
     """
     Load the list of trusted admins from persistent storage.
-    If the file is missing or invalid, initialize with the default super admin.
+    If the file is missing or invalid, initialize with the default super admins.
     """
+    default_super_admins = [582548598584115211, 115375818938646531]  # Include both IDs here
+
     try:
         with open(TRUSTED_ADMINS_PATH, 'r') as f:
             data = json.load(f)
             if isinstance(data, list):
-                # Ensure that the default super admin is always included
-                if 582548598584115211 not in data:
-                    data.append(582548598584115211)
+                # Ensure both default super admins are always included
+                for admin_id in default_super_admins:
+                    if admin_id not in data:
+                        data.append(admin_id)
                 return data
             else:
                 logging.error(f"Invalid data format in {TRUSTED_ADMINS_PATH}")
-                return [582548598584115211]  # Fallback to super admin
+                return default_super_admins  # Fallback to default super admins
     except (FileNotFoundError, json.decoder.JSONDecodeError):
-        logging.warning(f"{TRUSTED_ADMINS_PATH} not found or corrupted. Initializing with default super admin.")
-        return [582548598584115211]  # Fallback if file is missing or unreadable
+        logging.warning(f"{TRUSTED_ADMINS_PATH} not found or corrupted. Initializing with default super admins.")
+        return default_super_admins  # Fallback if file is missing or unreadable
 
 # Save banned users to persistent storage
 def save_banned_users():
