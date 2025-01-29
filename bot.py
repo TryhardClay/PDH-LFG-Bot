@@ -1153,7 +1153,7 @@ async def biglfg(interaction: discord.Interaction):
             logging.error(f"Error sending error message: {e}")
 
 @client.tree.command(name="banuser", description="Ban a user from interacting with bot-controlled channels. (restricted)")
-async def banuser(interaction: discord.Interaction, user: discord.Member, reason: str):
+async def banuser(interaction: discord.Interaction, user: discord.User, reason: str):
     """
     Bans a user from interacting with bot-controlled channels.
     First offense = 3-day temporary ban. Second offense = Permanent ban.
@@ -1199,8 +1199,9 @@ async def banuser(interaction: discord.Interaction, user: discord.Member, reason
     except Exception as e:
         logging.error(f"Failed to send ban DM to {user_name}: {e}")
 
+
 @client.tree.command(name="unbanuser", description="Unban a user from bot-controlled channels. (restricted)")
-async def unbanuser(interaction: discord.Interaction, user: discord.Member):
+async def unbanuser(interaction: discord.Interaction, user: discord.User):
     """
     Unbans a user, restoring access to bot-controlled channels.
     """
