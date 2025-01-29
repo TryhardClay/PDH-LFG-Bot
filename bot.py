@@ -939,7 +939,7 @@ async def about(interaction: discord.Interaction):
                 "**Use Commands Responsibly**: The `/biglfg` command and other bot features should be used for genuine game coordination. "
                 "Misuse for trolling, false game requests, or disruption will result in revoked access.\n\n"
                 "**Report Issues**: If you encounter technical issues, bugs, or suspicious behavior, notify a server administrator. "
-                "You may also report concerns to _clay_ (User ID: 582548598584115211) on Discord or email **gaming4tryhards@gmail.com**.\n\n"
+                "You may also report concerns to Clay (User ID: 582548598584115211) on Discord or email **gaming4tryhards@gmail.com**.\n\n"
                 "**⚠️ Compliance Failure**: Users who repeatedly violate the rules may be subject to temporary suspensions, "
                 "permanent restrictions, or a full ban from the bot’s services."
             ),
