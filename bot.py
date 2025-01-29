@@ -1292,8 +1292,9 @@ async def listbans(interaction: discord.Interaction):
     # Generate a ban list message
     ban_list = "**Banned Users:**\n"
     for user_id, data in banned_users.items():
+        user_name = data.get("name", "Unknown")  # Default to 'Unknown' if the name key is missing
         expiration = f" (Expires: <t:{data['expiration']}:R>)" if data["expiration"] else " (Permanent)"
-        ban_list += f"- **{data['name']}** (ID: {user_id}) - **Reason:** {data['reason']}{expiration}\n"
+        ban_list += f"- **{user_name}** (ID: {user_id}) - **Reason:** {data.get('reason', 'No reason provided')}{expiration}\n"
 
     await interaction.response.send_message(ban_list, ephemeral=True)
 
