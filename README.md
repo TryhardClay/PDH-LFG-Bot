@@ -50,12 +50,12 @@ The **PDH-LFG Bot** is designed to provide dynamic, cross-server communication a
 ## **Installation Instructions**
 ### **(For Server Admins Only)**
 
-1. **Invite the Bot:** [Click here to invite the bot](<INSERT_BOT_INVITE_URL>) to your server.
+1. **Invite the Bot:** [Click here to invite the bot](<[INSERT_BOT_INVITE_URL](https://discord.com/oauth2/authorize?client_id=1314984669485334528&permissions=1102464805986&integration_type=0&scope=bot+applications.commands)>) to your server.
 2. **Set Up Permissions:** Grant the bot the following permissions to ensure it works correctly:
    - Send Messages
    - Read Messages
    - Manage Webhooks
-   - Manage Roles (optional for role creation)
+   - Manage Roles (Mandatory for Moderation Purposes)
 3. **Set a Channel:** Create a dedicated channel for the bot and assign it using the **/setchannel** command.
 4. **Assign Filters:** Ensure channels in different servers have matching filters (e.g., casual or cpdh) to connect them.
 5. **Start Using the Bot:** Once configured, the bot will begin relaying messages and managing LFG requests.
