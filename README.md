@@ -1,52 +1,93 @@
 # PDH-LFG-Bot
-# Cross-Server Communication Bot
+## Cross-Server Communication and LFG Bot for Discord
 
-This Discord bot facilitates communication and coordination between different servers by relaying messages, prompts, and other content between designated channels. It's particularly useful for communities that want to collaborate or share information across servers, such as gaming groups, hobbyist clubs, or online communities.
+The **PDH-LFG Bot** is designed to provide dynamic, cross-server communication and matchmaking for Magic: The Gathering players and other communities. It relays messages, manages game requests, and automates TableStream game room creation, making it the perfect tool for creating interactive, community-driven experiences across multiple Discord servers.
 
-## Features
+---
 
-* **Cross-server message relaying:** Relays messages, including text, embeds, and attachments, between connected channels in different servers.
-* **Filtering:** Allows administrators to assign filters (e.g., "casual" or "cpdh") to channels, ensuring that messages are only relayed between channels with matching filters.
-* **SpellBot prompt redistribution:** Captures `/lfg` prompts from SpellBot (a bot for organizing SpellTable games) and redistributes them to connected channels, helping players find games across servers.
-* **Slash commands:** Provides user-friendly slash commands for managing the bot's functionality:
-    *   `/setchannel`: Sets a channel for cross-server communication and assigns a filter.
-    *   `/disconnect`: Disconnects a channel from cross-server communication.
-    *   `/listconnections`: Lists all connected channels and their filters.
-    *   `/resetconfig`: Reloads the bot's configuration (for debugging/development).
-    *   `/about`: Shows information about the bot and its commands.
-* **Role management:** Creates and manages a role for the bot in each server it joins.
-* **Error handling and logging:** Includes robust error handling and logging to ensure smooth operation and easy debugging.
+## **Features**
 
-## How to Use
+### **Message Relaying and Synchronization**
+- **Cross-server message relaying:** Dynamically relays messages, embeds, and prompts between connected channels in different servers.
+- **Attribution:** Relayed messages retain the original sender’s name and avatar, ensuring context is maintained across servers.
+- **Message ID Tracking:** Assigns a globally consistent ID to each message for seamless synchronization and updates across servers.
+- **Edits and deletions:** Message edits and deletions are propagated across all servers in real-time, ensuring consistency.
 
-1.  **Invite the bot to your server:** Use the following URL to invite the bot to your server:
-    (Replace `YOUR_BOT_ID` with your bot's actual client ID)
-    ```
-    [invalid URL removed]
-    ```
-2.  **Grant necessary permissions:** Ensure the bot has the following permissions:
-    *   "Manage Channels"
-    *   "Manage Webhooks"
-    *   "Manage Roles" (optional, for role creation)
-3.  **Use the `/setchannel` command:** In each server, use the `/setchannel` command in a text channel to designate it for cross-server communication and assign a filter (e.g., "casual" or "cpdh").
-4.  **Connect channels:** Repeat step 3 in other servers, ensuring that channels with matching filters are connected.
-5.  **Start communicating:** Send messages in the connected channels, and the bot will relay them to the corresponding channels in other servers.
+### **Advanced Reaction Management**
+- Users can react to any message in connected channels, and their reactions are mirrored across all corresponding copies in other servers.
 
-## Additional Notes
+### **Interactive LFG Embeds**
+- **/biglfg Command:** Creates dynamic, interactive LFG (Looking For Group) embeds.
+  - Displays available slots and automatically updates as players join or leave.
+  - Switches to "Your game is ready!" when 4 players are confirmed, with automatic TableStream game creation.
+  - Includes a 20-minute timeout feature with visual updates.
+  - Players receive DMs with game details, including links to join the TableStream game or provide a Spelltable link.
 
-*   The bot uses webhooks to relay messages between servers.
-*   The bot stores its configuration in a `webhooks.json` file.
-*   The bot creates a role with its own name in each server it joins (optional).
-*   The bot can be reloaded using the `/resetconfig` command.
+### **TableStream Integration**
+- Automatically creates and links TableStream game rooms when the player count requirement is met.
+- Provides game passwords (if required) and links via private DMs to players.
 
-## Disclaimer
+### **Admin and Restricted Commands**
+#### **Admin Commands:**
+- **/setchannel (admin):** Assigns a channel for cross-server communication and sets a filter (e.g., casual or cpdh).
+- **/disconnect (admin):** Removes a channel from the communication network.
+- **/updateconfig (admin):** Reloads configurations and syncs the command tree without restarting the bot.
+- **/listconnections (admin):** Lists active channel connections and their filters.
 
-This bot is still under development and might have limitations or bugs. Please use it responsibly and report any issues you encounter.
+#### **Restricted Commands (Super Admins Only):**
+- **/banuser (restricted):** Temporarily or permanently bans a user from interacting with bot-controlled channels and commands.
+- **/unbanuser (restricted):** Unbans a previously banned user.
+- **/listbans (restricted):** Displays a list of currently banned users, their ban duration, and the reason for the ban.
+- **/listadmins (restricted):** Lists all trusted administrators with special access to restricted commands.
 
-## Contributing
+### **Slash Commands for Players:**
+- **/biglfg:** Create a cross-server LFG request and manage players dynamically.
+- **/gamerequest:** Generate a TableStream game room manually.
+- **/about:** Display details about the bot, available commands, and rules for use.
 
-Contributions are welcome! If you'd like to contribute to this project, please fork the repository and submit a pull request.
+---
 
-## License
+## **Installation Instructions**
+### **(For Server Admins Only)**
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+1. **Invite the Bot:** [Click here to invite the bot](<INSERT_BOT_INVITE_URL>) to your server.
+2. **Set Up Permissions:** Grant the bot the following permissions to ensure it works correctly:
+   - Send Messages
+   - Read Messages
+   - Manage Webhooks
+   - Manage Roles (optional for role creation)
+3. **Set a Channel:** Create a dedicated channel for the bot and assign it using the **/setchannel** command.
+4. **Assign Filters:** Ensure channels in different servers have matching filters (e.g., casual or cpdh) to connect them.
+5. **Start Using the Bot:** Once configured, the bot will begin relaying messages and managing LFG requests.
+
+---
+
+## **How to Use the Bot**
+
+1. **Relaying Messages:** Send messages in designated channels, and the bot will relay them to connected servers with matching filters.
+2. **Organizing Games:** Use the **/biglfg** command to create an LFG request across servers.
+3. **Automatic Game Room Creation:** Once enough players join the LFG, a TableStream game room is created automatically.
+4. **Bans and Admin Management:** Super admins can manage bans using **/banuser**, **/unbanuser**, and **/listbans** commands.
+
+---
+
+## **Technology Stack**
+- **Gateways:** Discord’s Gateway API is used for all message delivery, updates, reactions, and edits.
+- **Webhooks:** Limited to channel setup and filter management.
+- **TTL Caching:** Manages temporary message metadata with expiration for performance optimization.
+
+---
+
+## **Disclaimer**
+This bot is actively maintained and updated. However, as with any ongoing development, there may be bugs or limitations. Please report any issues.
+
+---
+
+## **Contributing**
+We welcome contributions to enhance the bot. Fork the repository and submit a pull request to share improvements.
+
+---
+
+## **License**
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+
