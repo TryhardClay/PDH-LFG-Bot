@@ -536,27 +536,58 @@ def create_lfg_view():
     view = discord.ui.View(timeout=20 * 60)  # 20-minute timeout
 
     async def join_button_callback(button_interaction: discord.Interaction):
-        try:
-            lfg_uuid = None
-            for uuid, data in active_embeds.items():
-                if any(message.id == button_interaction.message.id for message in data["messages"].values()):
-                    lfg_uuid = uuid
-                    break
+    try:
+        user_id = str(button_interaction.user.id)
 
-            if not lfg_uuid or lfg_uuid not in active_embeds:
-                await button_interaction.response.send_message("This LFG request is no longer active.", ephemeral=True)
-                return
+        # Check if the user is banned
+        if user_id in banned_users:
+            logging.warning(f"Banned user {button_interaction.user.name} (ID: {user_id}) attempted to join a game.")
 
-            user_id = button_interaction.user.id
-            display_name = button_interaction.user.name
+            # Send a DM to inform the user about the ban
+            try:
+                reason = banned_users[user_id]["reason"]
+                expiration = (
+                    f"Your ban will expire <t:{banned_users[user_id]['expiration']}:R>."
+                    if banned_users[user_id]["expiration"] else "Your ban is permanent."
+                )
+                dm_message = (
+                    f"You are currently banned from joining games through this bot.\n"
+                    f"**Reason:** {reason}\n{expiration}\n\n"
+                    f"For appeals, inform the server admin, reach out to Clay (User ID: 582548598584115211) on Discord, "
+                    f"or email: gaming4tryhards@gmail.com."
+                )
+                await button_interaction.user.send(dm_message)
+            except Exception as e:
+                logging.error(f"Failed to DM banned user {button_interaction.user.name}: {e}")
 
-            if user_id not in active_embeds[lfg_uuid]["players"]:
-                active_embeds[lfg_uuid]["players"][user_id] = display_name
-                await update_embeds(lfg_uuid)
+            # Respond to the interaction without UI clutter
+            await button_interaction.response.send_message(
+                "You are banned from joining games through this bot.",
+                ephemeral=True
+            )
+            return
 
-            await button_interaction.response.defer()
-        except discord.errors.NotFound:
-            logging.error("Interaction not found. This might be caused by a timeout or invalid interaction.")
+        # Proceed with regular JOIN logic if the user is not banned
+        lfg_uuid = None
+        for uuid, data in active_embeds.items():
+            if any(message.id == button_interaction.message.id for message in data["messages"].values()):
+                lfg_uuid = uuid
+                break
+
+        if not lfg_uuid or lfg_uuid not in active_embeds:
+            await button_interaction.response.send_message("This LFG request is no longer active.", ephemeral=True)
+            return
+
+        user_id = button_interaction.user.id
+        display_name = button_interaction.user.name
+
+        if user_id not in active_embeds[lfg_uuid]["players"]:
+            active_embeds[lfg_uuid]["players"][user_id] = display_name
+            await update_embeds(lfg_uuid)
+
+        await button_interaction.response.defer()
+    except discord.errors.NotFound:
+        logging.error("Interaction not found. This might be caused by a timeout or invalid interaction.")
 
     async def leave_button_callback(button_interaction: discord.Interaction):
         try:
