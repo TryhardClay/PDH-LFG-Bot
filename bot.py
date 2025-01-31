@@ -306,8 +306,10 @@ async def relay_text_message(source_message, destination_channel):
     try:
         # Check for @ mentions
         if "@" in source_message.content:
-            logging.warning(f"Message from {source_message.author.name} (ID: {source_message.author.id}) "
-                            f"contains an '@' and will not be relayed: {source_message.content}")
+            logging.warning(
+                f"Message from {source_message.author.name} (ID: {source_message.author.id}) "
+                f"contains an '@' and will not be relayed: {source_message.content}"
+            )
             return  # Skip relaying the message
 
         # Continue relaying the message if no @ symbols are found
@@ -340,7 +342,6 @@ async def relay_text_message(source_message, destination_channel):
     except Exception as e:
         logging.error(f"Error relaying message to channel {destination_channel.id}: {e}")
         return None
-
 
 # Text Message Edit Propagation
 async def propagate_text_edit(before, after):
