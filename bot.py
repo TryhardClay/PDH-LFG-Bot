@@ -301,8 +301,16 @@ def sanitize_room_name(requester_name: str) -> str:
 async def relay_text_message(source_message, destination_channel):
     """
     Relay a text message across servers using the Gateway API.
+    Prevents relaying messages containing @ symbols (user, role, or everyone mentions).
     """
     try:
+        # Check for @ mentions
+        if "@" in source_message.content:
+            logging.warning(f"Message from {source_message.author.name} (ID: {source_message.author.id}) "
+                            f"contains an '@' and will not be relayed: {source_message.content}")
+            return  # Skip relaying the message
+
+        # Continue relaying the message if no @ symbols are found
         formatted_content = (
             f"{source_message.author.name} (from {source_message.guild.name}) said:\n"
             f"{source_message.content}"
@@ -310,17 +318,17 @@ async def relay_text_message(source_message, destination_channel):
 
         relayed_message = await destination_channel.send(content=formatted_content)
 
+        # Existing logic to track message IDs, etc.
         original_id = str(source_message.id)
         relay_channel_id = str(destination_channel.id)
         relay_message_id = str(relayed_message.id)
 
-        # Update the message_map with the user ID included
         if original_id not in message_map:
             message_map[original_id] = {
                 "original_channel_id": str(source_message.channel.id),
-                "relayed_messages": [],
-                "user_id": str(source_message.author.id)  # Track user ID
+                "relayed_messages": []
             }
+
         message_map[original_id]["relayed_messages"].append({
             "channel_id": relay_channel_id,
             "message_id": relay_message_id
