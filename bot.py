@@ -336,6 +336,7 @@ async def relay_text_message(source_message, destination_channel):
 
         logging.info(f"Updated message_map: {json.dumps(message_map, indent=4)}")
         return relayed_message
+
     except Exception as e:
         logging.error(f"Error relaying message to channel {destination_channel.id}: {e}")
         return None
