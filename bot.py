@@ -341,6 +341,7 @@ async def relay_text_message(source_message, destination_channel):
         logging.error(f"Error relaying message to channel {destination_channel.id}: {e}")
         return None
 
+
 # Text Message Edit Propagation
 async def propagate_text_edit(before, after):
     """
