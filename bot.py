@@ -1393,4 +1393,3 @@ if __name__ == "__main__":
         asyncio.run(start_bot())
     except Exception as e:
         logging.critical(f"Unhandled error during bot initialization: {e}")
-
