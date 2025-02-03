@@ -1075,7 +1075,7 @@ async def about(interaction: discord.Interaction):
              value=(
                 "**/biglfg** - Create a cross-server LFG request and automatically manage player listings.\n"
                 "**/gamerequest** - Generate a personal TableStream game link.\n"
-                "**/about** - Display details about the bot, commands, and usage."
+                "**/about** - Display details about the bot, commands, and usage.\n"
                 "**/listadmins** - Display a list of current bot super admins."
             ),
             inline=False
