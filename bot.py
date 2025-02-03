@@ -533,7 +533,7 @@ def create_lfg_view():
     """
     Create and return a Discord UI View with JOIN and LEAVE buttons for the BigLFG embed.
     """
-    view = discord.ui.View(timeout=20 * 60)  # 20-minute timeout
+    view = discord.ui.View(timeout=45 * 60)  # 45-minute timeout
 
     async def join_button_callback(button_interaction: discord.Interaction):
         try:
@@ -635,7 +635,7 @@ async def lfg_timeout(lfg_uuid):
     Handle timeout for an LFG embed.
     """
     try:
-        await asyncio.sleep(20 * 60)  # Wait 20 minutes
+        await asyncio.sleep(45 * 60)  # Wait 45 minutes
         if lfg_uuid in active_embeds:
             data = active_embeds.pop(lfg_uuid)
             for message in data["messages"].values():
