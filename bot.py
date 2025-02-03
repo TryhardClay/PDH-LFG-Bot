@@ -121,19 +121,11 @@ def load_webhook_data():
         return {}
 
 # Load channel filters from persistent storage
-# Load channel filters from persistent storage
 def load_channel_filters():
     try:
         with open(CHANNEL_FILTERS_PATH, 'r') as f:
             data = json.load(f)
             if isinstance(data, dict):
-                # Ensure legacy configurations are handled
-                for key, value in data.items():
-                    if isinstance(value, str):  # Old structure
-                        data[key] = {
-                            "primary_filter": value,
-                            "secondary_option": "full"  # Default legacy to full access
-                        }
                 return data
             else:
                 logging.error(f"Invalid data format in {CHANNEL_FILTERS_PATH}")
@@ -272,7 +264,7 @@ def save_webhook_data():
 
 def save_channel_filters():
     """
-    Save the current channel filters (both primary and secondary options) to persistent storage.
+    Save the current channel filters to persistent storage.
     """
     try:
         with open(CHANNEL_FILTERS_PATH, 'w') as f:
@@ -306,9 +298,9 @@ def sanitize_room_name(requester_name: str) -> str:
     return sanitized_name
 
 # Text Message Relay
-async def relay_text_message(source_message, destination_channel, source_filter_type):
+async def relay_text_message(source_message, destination_channel):
     """
-    Relay a text message across servers using the Gateway API, respecting channel filters.
+    Relay a text message across servers using the Gateway API.
     """
     try:
         formatted_content = (
@@ -316,27 +308,18 @@ async def relay_text_message(source_message, destination_channel, source_filter_
             f"{source_message.content}"
         )
 
-        # Get the destination filter and its type (full vs. commandonly)
-        destination_filter = CHANNEL_FILTERS.get(f"{destination_channel.guild.id}_{destination_channel.id}", 'none')
-        destination_filter_type = destination_filter.split('_')[1] if '_' in destination_filter else 'full'
-
-        # Ensure that full channels relay all messages, while commandonly ignores user text
-        if destination_filter_type == 'commandonly' and not source_message.content.startswith('/'):
-            logging.info(f"Blocking non-command message to commandonly channel: {destination_channel.name}")
-            return  # Skip relaying non-slash command messages to commandonly channels
-
-        # Relay the message normally to full or commandonly channels as appropriate
         relayed_message = await destination_channel.send(content=formatted_content)
 
-        # Track the relayed message in the message map
         original_id = str(source_message.id)
         relay_channel_id = str(destination_channel.id)
         relay_message_id = str(relayed_message.id)
 
+        # Update the message_map with the user ID included
         if original_id not in message_map:
             message_map[original_id] = {
                 "original_channel_id": str(source_message.channel.id),
-                "relayed_messages": []
+                "relayed_messages": [],
+                "user_id": str(source_message.author.id)  # Track user ID
             }
         message_map[original_id]["relayed_messages"].append({
             "channel_id": relay_channel_id,
@@ -345,7 +328,6 @@ async def relay_text_message(source_message, destination_channel, source_filter_
 
         logging.info(f"Updated message_map: {json.dumps(message_map, indent=4)}")
         return relayed_message
-
     except Exception as e:
         logging.error(f"Error relaying message to channel {destination_channel.id}: {e}")
         return None
@@ -745,6 +727,7 @@ async def on_message(message):
     """
     Handles new text messages and propagates them across connected channels.
     Ensures attribution to the original author and respects channel filters.
+    Also blocks messages from banned users.
     """
     if message.author == client.user or message.webhook_id:
         return  # Ignore bot messages and webhook messages
@@ -754,21 +737,31 @@ async def on_message(message):
     # Check if the user is banned
     if user_id in banned_users:
         logging.warning(f"Blocked message from banned user {message.author.name} (ID: {user_id}) in {message.channel.name}")
-        await message.delete()
-        return
 
-    source_channel_id = f"{message.guild.id}_{message.channel.id}"
+        # Delete the message and inform the user (ephemeral error message)
+        try:
+            await message.delete()
+            await message.author.send(
+                f"Your message in **{message.guild.name} - {message.channel.name}** was blocked because you are currently banned.\n"
+                f"**Reason:** {banned_users[user_id]['reason']}\n"
+                f"{'Your ban will expire in 3 days.' if banned_users[user_id]['expiration'] else 'This is a permanent ban.'}\n\n"
+                f"For appeals, contact the server admin, or reach out to Clay (User ID: 582548598584115211) on Discord."
+            )
+        except Exception as e:
+            logging.error(f"Failed to block and notify banned user {message.author.name}: {e}")
+
+        return  # Prevent relaying of banned messages
+
+    source_channel_id = f'{message.guild.id}_{message.channel.id}'
     if source_channel_id in WEBHOOK_URLS:
         source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
-        source_filter_type = source_filter.split('_')[1] if '_' in source_filter else 'full'
-
-        # Relay to all matching destination channels
         for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
-            destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
-            if source_filter.split('_')[0] == destination_filter.split('_')[0]:  # Match filter category (cpdh or casual)
-                destination_channel = client.get_channel(int(destination_channel_id.split('_')[1]))
-                if destination_channel:
-                    await relay_text_message(message, destination_channel, source_filter_type)
+            if source_channel_id != destination_channel_id:
+                destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
+                if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
+                    destination_channel = client.get_channel(int(destination_channel_id.split('_')[1]))
+                    if destination_channel:
+                        await relay_text_message(message, destination_channel)
 
 @client.event
 async def on_message_edit(before, after):
@@ -946,34 +939,31 @@ async def manage_role(guild):
 # Commands
 # -------------------------------------------------------------------------
 
-@client.tree.command(name="setchannel", description="Set the channel for cross-server communication with a filter and option. (admin)")
+@client.tree.command(name="setchannel", description="Set the channel for cross-server communication. (admin)")
 @commands.has_permissions(administrator=True)
-async def setchannel(interaction: discord.Interaction, channel: discord.TextChannel, primary_filter: str, secondary_option: str):
+async def setchannel(interaction: discord.Interaction, channel: discord.TextChannel, filter: str):
     """
-    Assign a channel for cross-server communication, applying both a primary filter (cpdh or casual)
-    and a secondary option (full or commandonly).
+    Assign a channel for cross-server communication and apply a filter.
+    Only available to server administrators.
     """
-    if primary_filter not in ("cpdh", "casual"):
-        await interaction.response.send_message("Invalid primary filter. Please specify 'cpdh' or 'casual'.", ephemeral=True)
+    if not interaction.user.guild_permissions.administrator:
+        logging.warning(f"Unauthorized /setchannel attempt by {interaction.user.name} (ID: {interaction.user.id})")
+        await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
         return
 
-    if secondary_option not in ("full", "commandonly"):
-        await interaction.response.send_message("Invalid secondary option. Please specify 'full' or 'commandonly'.", ephemeral=True)
+    filter = filter.lower()
+    if filter not in ("casual", "cpdh"):
+        await interaction.response.send_message("Invalid filter. Please specify 'casual' or 'cpdh'.", ephemeral=True)
         return
 
-    # Store both primary and secondary options
-    CHANNEL_FILTERS[f'{interaction.guild.id}_{channel.id}'] = {
-        "primary_filter": primary_filter,
-        "secondary_option": secondary_option
-    }
-
+    webhook = await channel.create_webhook(name="Cross-Server Bot Webhook")
+    WEBHOOK_URLS[f'{interaction.guild.id}_{channel.id}'] = {'url': webhook.url, 'id': webhook.id}
+    CHANNEL_FILTERS[f'{interaction.guild.id}_{channel.id}'] = filter
+    save_webhook_data()
     save_channel_filters()
 
-    logging.info(f"Admin {interaction.user.name} set {channel.mention} as a cross-server channel with primary filter '{primary_filter}' and secondary option '{secondary_option}'")
-    await interaction.response.send_message(
-        f"Cross-server communication channel set to {channel.mention} with primary filter '{primary_filter}' and secondary option '{secondary_option}'.",
-        ephemeral=True
-    )
+    logging.info(f"Admin {interaction.user.name} set {channel.mention} as a cross-server channel with filter '{filter}'")
+    await interaction.response.send_message(f"Cross-server communication channel set to {channel.mention} with filter '{filter}'.", ephemeral=True)
 
 @client.tree.command(name="disconnect", description="Disconnect a channel from cross-server communication. (admin)")
 @commands.has_permissions(administrator=True)
@@ -997,7 +987,7 @@ async def disconnect(interaction: discord.Interaction, channel: discord.TextChan
     else:
         await interaction.response.send_message(f"{channel.mention} is not connected to cross-server communication.", ephemeral=True)
 
-@client.tree.command(name="listconnections", description="List connected channels and their filters.")
+@client.tree.command(name="listconnections", description="List connected channels for cross-server communication.")
 @has_permissions(manage_channels=True)
 async def listconnections(interaction: discord.Interaction):
     """
@@ -1007,7 +997,7 @@ async def listconnections(interaction: discord.Interaction):
         if WEBHOOK_URLS:
             connections = "\n".join(
                 [f"- <#{channel.split('_')[1]}> in {client.get_guild(int(channel.split('_')[0])).name} "
-                 f"(Primary: {CHANNEL_FILTERS[channel]['primary_filter']}, Secondary: {CHANNEL_FILTERS[channel]['secondary_option']})"
+                 f"(filter: {CHANNEL_FILTERS.get(channel, 'none')})"
                  for channel in WEBHOOK_URLS]
             )
             await interaction.response.send_message(f"Connected channels:\n{connections}", ephemeral=True)
@@ -1097,6 +1087,7 @@ async def about(interaction: discord.Interaction):
                 "**/setchannel (admin)** - Set a channel for cross-server communication.\n"
                 "**/disconnect (admin)** - Remove a channel from cross-server communication.\n"
                 "**/updateconfig (admin)** - Reload the bot's configuration and resync commands.\n"
+                "**/listadmins (admin)** - Display a list of current bot super admins."
             ),
             inline=False
         )
@@ -1108,7 +1099,6 @@ async def about(interaction: discord.Interaction):
                 "**/banuser (restricted)** - Ban a user by User ID # from posting in bot-controlled channels and using commands.\n"
                 "**/unbanuser (restricted)** - Unban a previously banned user.\n"
                 "**/listbans (restricted)** - Display a list of currently banned users along with their details.\n"
-                "**/listadmins (restricted)** - Display a list of current bot admins."
             ),
             inline=False
         )
@@ -1167,6 +1157,14 @@ async def biglfg(interaction: discord.Interaction):
             "You are currently banned from using this command. Please contact an admin if you believe this is an error.",
             ephemeral=True
         )
+        # DM the user to notify them of their restriction
+        try:
+            await interaction.user.send(
+                "You attempted to use the /biglfg command but are currently banned from using it. "
+                "Please contact an admin to resolve this issue."
+            )
+        except Exception as e:
+            logging.error(f"Failed to send DM to banned user {interaction.user.name} (ID: {user_id}): {e}")
         return
 
     # Proceed with the normal /biglfg functionality if the user is not banned
@@ -1177,7 +1175,7 @@ async def biglfg(interaction: discord.Interaction):
         lfg_uuid = str(uuid.uuid4())
 
         source_channel_id = f'{interaction.guild.id}_{interaction.channel.id}'
-        source_filter = CHANNEL_FILTERS.get(source_channel_id, {}).get("primary_filter", "none")
+        source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
 
         # Create the initial embed
         embed = discord.Embed(
@@ -1193,27 +1191,18 @@ async def biglfg(interaction: discord.Interaction):
         embed.set_thumbnail(url=IMAGE_URL)  # Add the image as a thumbnail
         embed.add_field(name="Players:", value=f"1. {interaction.user.name}", inline=False)
 
-        # **Step 1: Send the embed to the initiating channel first**
-        initiating_message = await interaction.channel.send(embed=embed, view=create_lfg_view())
-        sent_messages = {f"{interaction.guild.id}_{interaction.channel.id}": initiating_message}
-
-        # **Step 2: Propagate to other channels**
+        # Track the BigLFG embed
+        sent_messages = {}
         for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
-            destination_filter = CHANNEL_FILTERS.get(destination_channel_id, {}).get("primary_filter", "none")
-            secondary_filter = CHANNEL_FILTERS.get(destination_channel_id, {}).get("secondary_filter", "full")
-
-            # Skip propagation if the target channel is commandonly
-            if secondary_filter == "commandonly" and source_filter != destination_filter:
-                logging.info(f"Skipping embed propagation to command-only channel: {destination_channel_id}")
-                continue
-
-            destination_channel = client.get_channel(int(destination_channel_id.split('_')[1]))
-            if destination_channel:
-                # Introduce a small delay to prevent rate-limiting
-                await asyncio.sleep(RATE_LIMIT_DELAY)
-                sent_message = await destination_channel.send(embed=embed, view=create_lfg_view())
-                if sent_message:
-                    sent_messages[destination_channel_id] = sent_message
+            destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
+            if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
+                destination_channel = client.get_channel(int(destination_channel_id.split('_')[1]))
+                if destination_channel:
+                    # Introduce a small delay to prevent rate-limiting
+                    await asyncio.sleep(RATE_LIMIT_DELAY)
+                    sent_message = await destination_channel.send(embed=embed, view=create_lfg_view())
+                    if sent_message:
+                        sent_messages[destination_channel_id] = sent_message
 
         if sent_messages:
             active_embeds[lfg_uuid] = {
@@ -1239,6 +1228,7 @@ async def biglfg(interaction: discord.Interaction):
             await interaction.followup.send("An error occurred while processing the BigLFG request.", ephemeral=True)
         except discord.HTTPException as e:
             logging.error(f"Error sending error message: {e}")
+
 @client.tree.command(name="banuser", description="Ban a user from interacting with bot-controlled channels. (restricted)")
 async def banuser(interaction: discord.Interaction, user: discord.User, reason: str):
     """
