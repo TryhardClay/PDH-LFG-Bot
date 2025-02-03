@@ -306,36 +306,37 @@ def sanitize_room_name(requester_name: str) -> str:
     return sanitized_name
 
 # Text Message Relay
-async def relay_text_message(source_message, destination_channel):
+async def relay_text_message(source_message, destination_channel, source_filter_type):
     """
-    Relay a text message across servers using the Gateway API.
-    Properly handles filter checks to ensure correct propagation.
+    Relay a text message across servers using the Gateway API, respecting channel filters.
     """
     try:
-        source_filter = CHANNEL_FILTERS.get(f"{source_message.guild.id}_{source_message.channel.id}", {}).get("secondary_filter", "full")
-
-        # Skip if the source is a commandonly channel
-        if source_filter == "commandonly":
-            logging.info(f"Blocking text message relay from command-only channel: {source_message.channel.name}")
-            return
-
         formatted_content = (
             f"{source_message.author.name} (from {source_message.guild.name}) said:\n"
             f"{source_message.content}"
         )
 
+        # Get the destination filter and its type (full vs. commandonly)
+        destination_filter = CHANNEL_FILTERS.get(f"{destination_channel.guild.id}_{destination_channel.id}", 'none')
+        destination_filter_type = destination_filter.split('_')[1] if '_' in destination_filter else 'full'
+
+        # Ensure that full channels relay all messages, while commandonly ignores user text
+        if destination_filter_type == 'commandonly' and not source_message.content.startswith('/'):
+            logging.info(f"Blocking non-command message to commandonly channel: {destination_channel.name}")
+            return  # Skip relaying non-slash command messages to commandonly channels
+
+        # Relay the message normally to full or commandonly channels as appropriate
         relayed_message = await destination_channel.send(content=formatted_content)
 
+        # Track the relayed message in the message map
         original_id = str(source_message.id)
         relay_channel_id = str(destination_channel.id)
         relay_message_id = str(relayed_message.id)
 
-        # Update the message_map with the user ID included
         if original_id not in message_map:
             message_map[original_id] = {
                 "original_channel_id": str(source_message.channel.id),
-                "relayed_messages": [],
-                "user_id": str(source_message.author.id)  # Track user ID
+                "relayed_messages": []
             }
         message_map[original_id]["relayed_messages"].append({
             "channel_id": relay_channel_id,
@@ -344,6 +345,7 @@ async def relay_text_message(source_message, destination_channel):
 
         logging.info(f"Updated message_map: {json.dumps(message_map, indent=4)}")
         return relayed_message
+
     except Exception as e:
         logging.error(f"Error relaying message to channel {destination_channel.id}: {e}")
         return None
@@ -742,39 +744,31 @@ async def on_ready():
 async def on_message(message):
     """
     Handles new text messages and propagates them across connected channels.
-    Blocks non-command messages locally in command-only channels.
+    Ensures attribution to the original author and respects channel filters.
     """
     if message.author == client.user or message.webhook_id:
         return  # Ignore bot messages and webhook messages
 
-    source_channel_id = f'{message.guild.id}_{message.channel.id}'
+    user_id = str(message.author.id)
 
-    # Check channel filter configuration
-    if source_channel_id in CHANNEL_FILTERS:
-        channel_config = CHANNEL_FILTERS[source_channel_id]
-        secondary_option = channel_config.get("secondary_option", "full")
+    # Check if the user is banned
+    if user_id in banned_users:
+        logging.warning(f"Blocked message from banned user {message.author.name} (ID: {user_id}) in {message.channel.name}")
+        await message.delete()
+        return
 
-        # Allow all slash commands regardless of the secondary option
-        if message.content.startswith('/'):
-            await client.process_commands(message)  # Process slash commands normally
-            return
+    source_channel_id = f"{message.guild.id}_{message.channel.id}"
+    if source_channel_id in WEBHOOK_URLS:
+        source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
+        source_filter_type = source_filter.split('_')[1] if '_' in source_filter else 'full'
 
-        # If command-only, block non-command messages locally
-        if secondary_option == "commandonly":
-            logging.info(f"Blocked non-command message from {message.author.name} in {message.channel.name}.")
-            await message.delete()
-            return  # Do not relay this message
-
-    # If not blocked, continue normal relaying process
-    source_filter = channel_config.get("primary_filter", "none")
-    for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
-        if source_channel_id != destination_channel_id:
-            destination_config = CHANNEL_FILTERS.get(destination_channel_id, {"primary_filter": "none"})
-            destination_filter = destination_config["primary_filter"]
-            if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
+        # Relay to all matching destination channels
+        for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
+            destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
+            if source_filter.split('_')[0] == destination_filter.split('_')[0]:  # Match filter category (cpdh or casual)
                 destination_channel = client.get_channel(int(destination_channel_id.split('_')[1]))
                 if destination_channel:
-                    await relay_text_message(message, destination_channel)
+                    await relay_text_message(message, destination_channel, source_filter_type)
 
 @client.event
 async def on_message_edit(before, after):
