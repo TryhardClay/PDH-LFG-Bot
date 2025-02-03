@@ -739,17 +739,17 @@ async def on_message(message):
     if message.author == client.user or message.webhook_id:
         return  # Ignore bot messages and webhook messages
 
-    # Check if the message is a command
-    if message.content.startswith('/'):
-        # Proceed with command handling
-        await client.process_commands(message)
-        return
+    source_channel_id = f'{message.guild.id}_{message.channel.id}'
 
     # Check channel filter configuration
-    source_channel_id = f'{message.guild.id}_{message.channel.id}'
     if source_channel_id in CHANNEL_FILTERS:
         channel_config = CHANNEL_FILTERS[source_channel_id]
         secondary_option = channel_config.get("secondary_option", "full")
+
+        # Allow all slash commands regardless of the secondary option
+        if message.content.startswith('/'):
+            await client.process_commands(message)  # Process slash commands normally
+            return
 
         # If command-only, block non-command messages locally
         if secondary_option == "commandonly":
@@ -1183,7 +1183,7 @@ async def biglfg(interaction: discord.Interaction):
         lfg_uuid = str(uuid.uuid4())
 
         source_channel_id = f'{interaction.guild.id}_{interaction.channel.id}'
-        source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
+        source_filter = CHANNEL_FILTERS.get(source_channel_id, {}).get("primary_filter", "none")
 
         # Create the initial embed
         embed = discord.Embed(
@@ -1199,10 +1199,13 @@ async def biglfg(interaction: discord.Interaction):
         embed.set_thumbnail(url=IMAGE_URL)  # Add the image as a thumbnail
         embed.add_field(name="Players:", value=f"1. {interaction.user.name}", inline=False)
 
-        # Track the BigLFG embed
-        sent_messages = {}
+        # **Step 1: Send the embed to the initiating channel first**
+        initiating_message = await interaction.channel.send(embed=embed, view=create_lfg_view())
+        sent_messages = {f"{interaction.guild.id}_{interaction.channel.id}": initiating_message}
+
+        # **Step 2: Propagate to other channels**
         for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
-            destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
+            destination_filter = CHANNEL_FILTERS.get(destination_channel_id, {}).get("primary_filter", "none")
             if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
                 destination_channel = client.get_channel(int(destination_channel_id.split('_')[1]))
                 if destination_channel:
