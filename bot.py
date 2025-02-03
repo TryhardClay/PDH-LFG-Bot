@@ -988,7 +988,7 @@ async def disconnect(interaction: discord.Interaction, channel: discord.TextChan
         await interaction.response.send_message(f"{channel.mention} is not connected to cross-server communication.", ephemeral=True)
 
 @client.tree.command(name="listconnections", description="List connected channels for cross-server communication.")
-@has_permissions(manage_channels=True)
+@commands.has_permissions(administrator=True)
 async def listconnections(interaction: discord.Interaction):
     """
     Display all active channel connections and their filters across servers.
@@ -1076,6 +1076,7 @@ async def about(interaction: discord.Interaction):
                 "**/biglfg** - Create a cross-server LFG request and automatically manage player listings.\n"
                 "**/gamerequest** - Generate a personal TableStream game link.\n"
                 "**/about** - Display details about the bot, commands, and usage."
+                "**/listadmins** - Display a list of current bot super admins."
             ),
             inline=False
         )
@@ -1087,7 +1088,7 @@ async def about(interaction: discord.Interaction):
                 "**/setchannel (admin)** - Set a channel for cross-server communication.\n"
                 "**/disconnect (admin)** - Remove a channel from cross-server communication.\n"
                 "**/updateconfig (admin)** - Reload the bot's configuration and resync commands.\n"
-                "**/listadmins (admin)** - Display a list of current bot super admins."
+                "**/listconnections (admin)** - Generate a list of all connected servers and channels."
             ),
             inline=False
         )
