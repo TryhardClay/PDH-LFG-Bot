@@ -309,8 +309,16 @@ def sanitize_room_name(requester_name: str) -> str:
 async def relay_text_message(source_message, destination_channel):
     """
     Relay a text message across servers using the Gateway API.
+    Properly handles filter checks to ensure correct propagation.
     """
     try:
+        source_filter = CHANNEL_FILTERS.get(f"{source_message.guild.id}_{source_message.channel.id}", {}).get("secondary_filter", "full")
+
+        # Skip if the source is a commandonly channel
+        if source_filter == "commandonly":
+            logging.info(f"Blocking text message relay from command-only channel: {source_message.channel.name}")
+            return
+
         formatted_content = (
             f"{source_message.author.name} (from {source_message.guild.name}) said:\n"
             f"{source_message.content}"
@@ -1165,14 +1173,6 @@ async def biglfg(interaction: discord.Interaction):
             "You are currently banned from using this command. Please contact an admin if you believe this is an error.",
             ephemeral=True
         )
-        # DM the user to notify them of their restriction
-        try:
-            await interaction.user.send(
-                "You attempted to use the /biglfg command but are currently banned from using it. "
-                "Please contact an admin to resolve this issue."
-            )
-        except Exception as e:
-            logging.error(f"Failed to send DM to banned user {interaction.user.name} (ID: {user_id}): {e}")
         return
 
     # Proceed with the normal /biglfg functionality if the user is not banned
@@ -1206,14 +1206,20 @@ async def biglfg(interaction: discord.Interaction):
         # **Step 2: Propagate to other channels**
         for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
             destination_filter = CHANNEL_FILTERS.get(destination_channel_id, {}).get("primary_filter", "none")
-            if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
-                destination_channel = client.get_channel(int(destination_channel_id.split('_')[1]))
-                if destination_channel:
-                    # Introduce a small delay to prevent rate-limiting
-                    await asyncio.sleep(RATE_LIMIT_DELAY)
-                    sent_message = await destination_channel.send(embed=embed, view=create_lfg_view())
-                    if sent_message:
-                        sent_messages[destination_channel_id] = sent_message
+            secondary_filter = CHANNEL_FILTERS.get(destination_channel_id, {}).get("secondary_filter", "full")
+
+            # Skip propagation if the target channel is commandonly
+            if secondary_filter == "commandonly" and source_filter != destination_filter:
+                logging.info(f"Skipping embed propagation to command-only channel: {destination_channel_id}")
+                continue
+
+            destination_channel = client.get_channel(int(destination_channel_id.split('_')[1]))
+            if destination_channel:
+                # Introduce a small delay to prevent rate-limiting
+                await asyncio.sleep(RATE_LIMIT_DELAY)
+                sent_message = await destination_channel.send(embed=embed, view=create_lfg_view())
+                if sent_message:
+                    sent_messages[destination_channel_id] = sent_message
 
         if sent_messages:
             active_embeds[lfg_uuid] = {
@@ -1239,7 +1245,6 @@ async def biglfg(interaction: discord.Interaction):
             await interaction.followup.send("An error occurred while processing the BigLFG request.", ephemeral=True)
         except discord.HTTPException as e:
             logging.error(f"Error sending error message: {e}")
-
 @client.tree.command(name="banuser", description="Ban a user from interacting with bot-controlled channels. (restricted)")
 async def banuser(interaction: discord.Interaction, user: discord.User, reason: str):
     """
