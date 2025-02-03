@@ -121,11 +121,19 @@ def load_webhook_data():
         return {}
 
 # Load channel filters from persistent storage
+# Load channel filters from persistent storage
 def load_channel_filters():
     try:
         with open(CHANNEL_FILTERS_PATH, 'r') as f:
             data = json.load(f)
             if isinstance(data, dict):
+                # Ensure legacy configurations are handled
+                for key, value in data.items():
+                    if isinstance(value, str):  # Old structure
+                        data[key] = {
+                            "primary_filter": value,
+                            "secondary_option": "full"  # Default legacy to full access
+                        }
                 return data
             else:
                 logging.error(f"Invalid data format in {CHANNEL_FILTERS_PATH}")
@@ -264,7 +272,7 @@ def save_webhook_data():
 
 def save_channel_filters():
     """
-    Save the current channel filters to persistent storage.
+    Save the current channel filters (both primary and secondary options) to persistent storage.
     """
     try:
         with open(CHANNEL_FILTERS_PATH, 'w') as f:
@@ -726,42 +734,39 @@ async def on_ready():
 async def on_message(message):
     """
     Handles new text messages and propagates them across connected channels.
-    Ensures attribution to the original author and respects channel filters.
-    Also blocks messages from banned users.
+    Blocks non-command messages locally in command-only channels.
     """
     if message.author == client.user or message.webhook_id:
         return  # Ignore bot messages and webhook messages
 
-    user_id = str(message.author.id)
+    # Check if the message is a command
+    if message.content.startswith('/'):
+        # Proceed with command handling
+        await client.process_commands(message)
+        return
 
-    # Check if the user is banned
-    if user_id in banned_users:
-        logging.warning(f"Blocked message from banned user {message.author.name} (ID: {user_id}) in {message.channel.name}")
-
-        # Delete the message and inform the user (ephemeral error message)
-        try:
-            await message.delete()
-            await message.author.send(
-                f"Your message in **{message.guild.name} - {message.channel.name}** was blocked because you are currently banned.\n"
-                f"**Reason:** {banned_users[user_id]['reason']}\n"
-                f"{'Your ban will expire in 3 days.' if banned_users[user_id]['expiration'] else 'This is a permanent ban.'}\n\n"
-                f"For appeals, contact the server admin, or reach out to Clay (User ID: 582548598584115211) on Discord."
-            )
-        except Exception as e:
-            logging.error(f"Failed to block and notify banned user {message.author.name}: {e}")
-
-        return  # Prevent relaying of banned messages
-
+    # Check channel filter configuration
     source_channel_id = f'{message.guild.id}_{message.channel.id}'
-    if source_channel_id in WEBHOOK_URLS:
-        source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
-        for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
-            if source_channel_id != destination_channel_id:
-                destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
-                if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
-                    destination_channel = client.get_channel(int(destination_channel_id.split('_')[1]))
-                    if destination_channel:
-                        await relay_text_message(message, destination_channel)
+    if source_channel_id in CHANNEL_FILTERS:
+        channel_config = CHANNEL_FILTERS[source_channel_id]
+        secondary_option = channel_config.get("secondary_option", "full")
+
+        # If command-only, block non-command messages locally
+        if secondary_option == "commandonly":
+            logging.info(f"Blocked non-command message from {message.author.name} in {message.channel.name}.")
+            await message.delete()
+            return  # Do not relay this message
+
+    # If not blocked, continue normal relaying process
+    source_filter = channel_config.get("primary_filter", "none")
+    for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
+        if source_channel_id != destination_channel_id:
+            destination_config = CHANNEL_FILTERS.get(destination_channel_id, {"primary_filter": "none"})
+            destination_filter = destination_config["primary_filter"]
+            if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
+                destination_channel = client.get_channel(int(destination_channel_id.split('_')[1]))
+                if destination_channel:
+                    await relay_text_message(message, destination_channel)
 
 @client.event
 async def on_message_edit(before, after):
@@ -939,31 +944,34 @@ async def manage_role(guild):
 # Commands
 # -------------------------------------------------------------------------
 
-@client.tree.command(name="setchannel", description="Set the channel for cross-server communication. (admin)")
+@client.tree.command(name="setchannel", description="Set the channel for cross-server communication with a filter and option. (admin)")
 @commands.has_permissions(administrator=True)
-async def setchannel(interaction: discord.Interaction, channel: discord.TextChannel, filter: str):
+async def setchannel(interaction: discord.Interaction, channel: discord.TextChannel, primary_filter: str, secondary_option: str):
     """
-    Assign a channel for cross-server communication and apply a filter.
-    Only available to server administrators.
+    Assign a channel for cross-server communication, applying both a primary filter (cpdh or casual)
+    and a secondary option (full or commandonly).
     """
-    if not interaction.user.guild_permissions.administrator:
-        logging.warning(f"Unauthorized /setchannel attempt by {interaction.user.name} (ID: {interaction.user.id})")
-        await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
+    if primary_filter not in ("cpdh", "casual"):
+        await interaction.response.send_message("Invalid primary filter. Please specify 'cpdh' or 'casual'.", ephemeral=True)
         return
 
-    filter = filter.lower()
-    if filter not in ("casual", "cpdh"):
-        await interaction.response.send_message("Invalid filter. Please specify 'casual' or 'cpdh'.", ephemeral=True)
+    if secondary_option not in ("full", "commandonly"):
+        await interaction.response.send_message("Invalid secondary option. Please specify 'full' or 'commandonly'.", ephemeral=True)
         return
 
-    webhook = await channel.create_webhook(name="Cross-Server Bot Webhook")
-    WEBHOOK_URLS[f'{interaction.guild.id}_{channel.id}'] = {'url': webhook.url, 'id': webhook.id}
-    CHANNEL_FILTERS[f'{interaction.guild.id}_{channel.id}'] = filter
-    save_webhook_data()
+    # Store both primary and secondary options
+    CHANNEL_FILTERS[f'{interaction.guild.id}_{channel.id}'] = {
+        "primary_filter": primary_filter,
+        "secondary_option": secondary_option
+    }
+
     save_channel_filters()
 
-    logging.info(f"Admin {interaction.user.name} set {channel.mention} as a cross-server channel with filter '{filter}'")
-    await interaction.response.send_message(f"Cross-server communication channel set to {channel.mention} with filter '{filter}'.", ephemeral=True)
+    logging.info(f"Admin {interaction.user.name} set {channel.mention} as a cross-server channel with primary filter '{primary_filter}' and secondary option '{secondary_option}'")
+    await interaction.response.send_message(
+        f"Cross-server communication channel set to {channel.mention} with primary filter '{primary_filter}' and secondary option '{secondary_option}'.",
+        ephemeral=True
+    )
 
 @client.tree.command(name="disconnect", description="Disconnect a channel from cross-server communication. (admin)")
 @commands.has_permissions(administrator=True)
@@ -987,7 +995,7 @@ async def disconnect(interaction: discord.Interaction, channel: discord.TextChan
     else:
         await interaction.response.send_message(f"{channel.mention} is not connected to cross-server communication.", ephemeral=True)
 
-@client.tree.command(name="listconnections", description="List connected channels for cross-server communication.")
+@client.tree.command(name="listconnections", description="List connected channels and their filters.")
 @has_permissions(manage_channels=True)
 async def listconnections(interaction: discord.Interaction):
     """
@@ -997,7 +1005,7 @@ async def listconnections(interaction: discord.Interaction):
         if WEBHOOK_URLS:
             connections = "\n".join(
                 [f"- <#{channel.split('_')[1]}> in {client.get_guild(int(channel.split('_')[0])).name} "
-                 f"(filter: {CHANNEL_FILTERS.get(channel, 'none')})"
+                 f"(Primary: {CHANNEL_FILTERS[channel]['primary_filter']}, Secondary: {CHANNEL_FILTERS[channel]['secondary_option']})"
                  for channel in WEBHOOK_URLS]
             )
             await interaction.response.send_message(f"Connected channels:\n{connections}", ephemeral=True)
