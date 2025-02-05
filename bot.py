@@ -754,10 +754,10 @@ async def on_message(message):
 
     source_channel_id = f'{message.guild.id}_{message.channel.id}'
     if source_channel_id in WEBHOOK_URLS:
-        source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
+        source_filter = str(CHANNEL_FILTERS.get(source_channel_id, 'none'))  # Ensure string type
         for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
             if source_channel_id != destination_channel_id:
-                destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
+                destination_filter = str(CHANNEL_FILTERS.get(destination_channel_id, 'none'))  # Ensure string type
                 # Only relay text messages to *txt channels
                 if source_filter.endswith('txt') and destination_filter.endswith('txt') and source_filter == destination_filter:
                     destination_channel = client.get_channel(int(destination_channel_id.split('_')[1]))
@@ -959,7 +959,7 @@ async def setchannel(interaction: discord.Interaction, channel: discord.TextChan
 
     webhook = await channel.create_webhook(name="Cross-Server Bot Webhook")
     WEBHOOK_URLS[f'{interaction.guild.id}_{channel.id}'] = {'url': webhook.url, 'id': webhook.id}
-    CHANNEL_FILTERS[f'{interaction.guild.id}_{channel.id}'] = filter
+    CHANNEL_FILTERS[f'{interaction.guild.id}_{channel.id}'] = filter  # Store filter as a string
     save_webhook_data()
     save_channel_filters()
 
@@ -1176,7 +1176,7 @@ async def biglfg(interaction: discord.Interaction):
         lfg_uuid = str(uuid.uuid4())
 
         source_channel_id = f'{interaction.guild.id}_{interaction.channel.id}'
-        source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
+        source_filter = str(CHANNEL_FILTERS.get(source_channel_id, 'none'))  # Ensure string type
 
         # Create the initial embed
         embed = discord.Embed(
@@ -1195,7 +1195,7 @@ async def biglfg(interaction: discord.Interaction):
         # Track the BigLFG embed
         sent_messages = {}
         for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
-            destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
+            destination_filter = str(CHANNEL_FILTERS.get(destination_channel_id, 'none'))  # Ensure string type
             # Only send embeds to *lfg channels
             if source_filter.endswith('lfg') and destination_filter.endswith('lfg') and source_filter == destination_filter:
                 destination_channel = client.get_channel(int(destination_channel_id.split('_')[1]))
