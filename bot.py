@@ -758,7 +758,8 @@ async def on_message(message):
         for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
             if source_channel_id != destination_channel_id:
                 destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
-                if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
+                # Only relay text messages to *txt channels
+                if source_filter.endswith('txt') and destination_filter.endswith('txt') and source_filter == destination_filter:
                     destination_channel = client.get_channel(int(destination_channel_id.split('_')[1]))
                     if destination_channel:
                         await relay_text_message(message, destination_channel)
@@ -952,8 +953,8 @@ async def setchannel(interaction: discord.Interaction, channel: discord.TextChan
         return
 
     filter = filter.lower()
-    if filter not in ("casual", "cpdh"):
-        await interaction.response.send_message("Invalid filter. Please specify 'casual' or 'cpdh'.", ephemeral=True)
+    if filter not in ("cpdhtxt", "cpdhlfg", "casualtxt", "casuallfg"):
+        await interaction.response.send_message("Invalid filter. Please specify 'cpdhtxt', 'cpdhlfg', 'casualtxt', or 'casuallfg'.", ephemeral=True)
         return
 
     webhook = await channel.create_webhook(name="Cross-Server Bot Webhook")
@@ -988,7 +989,7 @@ async def disconnect(interaction: discord.Interaction, channel: discord.TextChan
         await interaction.response.send_message(f"{channel.mention} is not connected to cross-server communication.", ephemeral=True)
 
 @client.tree.command(name="listconnections", description="List connected channels for cross-server communication.")
-@commands.has_permissions(administrator=True)
+@has_permissions(manage_channels=True)
 async def listconnections(interaction: discord.Interaction):
     """
     Display all active channel connections and their filters across servers.
@@ -1075,8 +1076,7 @@ async def about(interaction: discord.Interaction):
              value=(
                 "**/biglfg** - Create a cross-server LFG request and automatically manage player listings.\n"
                 "**/gamerequest** - Generate a personal TableStream game link.\n"
-                "**/about** - Display details about the bot, commands, and usage.\n"
-                "**/listadmins** - Display a list of current bot super admins."
+                "**/about** - Display details about the bot, commands, and usage."
             ),
             inline=False
         )
@@ -1088,7 +1088,7 @@ async def about(interaction: discord.Interaction):
                 "**/setchannel (admin)** - Set a channel for cross-server communication.\n"
                 "**/disconnect (admin)** - Remove a channel from cross-server communication.\n"
                 "**/updateconfig (admin)** - Reload the bot's configuration and resync commands.\n"
-                "**/listconnections (admin)** - Generate a list of all connected servers and channels."
+                "**/listadmins (admin)** - Display a list of current bot super admins."
             ),
             inline=False
         )
@@ -1196,7 +1196,8 @@ async def biglfg(interaction: discord.Interaction):
         sent_messages = {}
         for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
             destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
-            if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
+            # Only send embeds to *lfg channels
+            if source_filter.endswith('lfg') and destination_filter.endswith('lfg') and source_filter == destination_filter:
                 destination_channel = client.get_channel(int(destination_channel_id.split('_')[1]))
                 if destination_channel:
                     # Introduce a small delay to prevent rate-limiting
@@ -1214,21 +1215,9 @@ async def biglfg(interaction: discord.Interaction):
             await interaction.followup.send("BigLFG request sent successfully!", ephemeral=True)
         else:
             await interaction.followup.send("Failed to send BigLFG request to any channels.", ephemeral=True)
-
-    except discord.HTTPException as e:
-        if e.status == 429:
-            retry_after = int(e.response.headers.get("Retry-After", 1)) / 1000
-            logging.warning(f"Rate limit hit during BigLFG command! Retrying after {retry_after} seconds.")
-            await asyncio.sleep(retry_after)
-            await biglfg(interaction)
-        else:
-            logging.error(f"Discord API error in BigLFG command: {e}")
     except Exception as e:
         logging.error(f"Error in BigLFG command: {e}")
-        try:
-            await interaction.followup.send("An error occurred while processing the BigLFG request.", ephemeral=True)
-        except discord.HTTPException as e:
-            logging.error(f"Error sending error message: {e}")
+        await interaction.followup.send("An error occurred while processing the BigLFG request.", ephemeral=True)
 
 @client.tree.command(name="banuser", description="Ban a user from interacting with bot-controlled channels. (restricted)")
 async def banuser(interaction: discord.Interaction, user: discord.User, reason: str):
