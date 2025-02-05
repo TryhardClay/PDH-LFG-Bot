@@ -1046,23 +1046,6 @@ async def updateconfig(interaction: discord.Interaction):
         logging.error(f"Error during /updateconfig: {e}")
         await interaction.followup.send(f"An error occurred while reloading configuration or syncing commands: {e}", ephemeral=True)
 
-@client.tree.command(name="addspelltable", description="Add a SpellTable link (only links starting with 'https://').")
-async def addspelltable(interaction: discord.Interaction, link: str):
-    """
-    Command to allow users to add a SpellTable link. Only links starting with 'https://' are permitted.
-    """
-    if not link.startswith("https://"):
-        await interaction.response.send_message(
-            "Invalid input. Please enter a valid link starting with 'https://'.",
-            ephemeral=True
-        )
-        return
-
-    # Confirm valid link submission
-    await interaction.response.send_message(
-        f"SpellTable link successfully added: {link}", ephemeral=True
-    )
-
 @client.tree.command(name="about", description="Show information about the bot and its commands.")
 async def about(interaction: discord.Interaction):
     """
@@ -1080,9 +1063,9 @@ async def about(interaction: discord.Interaction):
             color=discord.Color.blue()
         )
 
-        # 🔟 Rules Section
+        # 📜 Rules Section
         embed.add_field(
-            name="\ud83d\udd1f Rules:",
+            name="📜 Rules:",
             value=(
                 "1️⃣ **Respect Others** - Treat all players with kindness and fairness.\n"
                 "2️⃣ **No Harassment** - Any form of harassment, hate speech, or discrimination will result in bans.\n"
@@ -1097,19 +1080,18 @@ async def about(interaction: discord.Interaction):
 
         # 🌎 Public Commands
         embed.add_field(
-            name="\ud83c\udf0e Public Commands:",
-            value=(
+            name="🌎 Public Commands:",
+             value=(
                 "**/biglfg** - Create a cross-server LFG request and automatically manage player listings.\n"
                 "**/gamerequest** - Generate a personal TableStream game link.\n"
-                "**/addspelltable** - Add a SpellTable link (only valid links starting with 'https://').\n"
                 "**/about** - Display details about the bot, commands, and usage."
             ),
             inline=False
         )
 
-        # 🔒 Admin Commands
+        # 🔐 Admin Commands
         embed.add_field(
-            name="\ud83d\udd12 Admin Commands (Server Admins Only):",
+            name="🔐 Admin Commands (Server Admins Only):",
             value=(
                 "**/setchannel (admin)** - Set a channel for cross-server communication.\n"
                 "**/disconnect (admin)** - Remove a channel from cross-server communication.\n"
@@ -1121,7 +1103,7 @@ async def about(interaction: discord.Interaction):
 
         # 🚨 Restricted Commands (Super Admins Only)
         embed.add_field(
-            name="\ud83d\udea8 Restricted Commands (Super Admins Only):",
+            name="🚨 Restricted Commands (Super Admins Only):",
             value=(
                 "**/banuser (restricted)** - Ban a user by User ID # from posting in bot-controlled channels and using commands.\n"
                 "**/unbanuser (restricted)** - Unban a previously banned user.\n"
