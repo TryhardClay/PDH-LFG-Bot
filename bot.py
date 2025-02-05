@@ -728,6 +728,7 @@ async def on_message(message):
     Handles new text messages and propagates them across connected channels.
     Ensures attribution to the original author and respects channel filters.
     Also blocks messages from banned users.
+    Prevents non-slash commands in *lfg channels.
     """
     if message.author == client.user or message.webhook_id:
         return  # Ignore bot messages and webhook messages
@@ -753,8 +754,15 @@ async def on_message(message):
         return  # Prevent relaying of banned messages
 
     source_channel_id = f'{message.guild.id}_{message.channel.id}'
+    source_filter = str(CHANNEL_FILTERS.get(source_channel_id, 'none'))  # Ensure string type
+
+    # Check if the message is in an *lfg channel and not a slash command
+    if source_filter.endswith('lfg') and not message.content.startswith('/'):
+        await message.delete()
+        await message.channel.send(f"Text messages are not allowed in this channel. Please use slash commands.", delete_after=5)
+        return
+
     if source_channel_id in WEBHOOK_URLS:
-        source_filter = str(CHANNEL_FILTERS.get(source_channel_id, 'none'))  # Ensure string type
         for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
             if source_channel_id != destination_channel_id:
                 destination_filter = str(CHANNEL_FILTERS.get(destination_channel_id, 'none'))  # Ensure string type
