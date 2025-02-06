@@ -700,7 +700,7 @@ async def generate_tablestream_link(game_data: dict, game_format: GameFormat, pl
 @client.event
 async def on_ready():
     """
-    Event triggered when the bot is ready. Reloads configuration files,
+    Optimized event triggered when the bot is ready. Reloads configuration files,
     logs guild connections, and initializes the bot state.
     """
     logging.info(f"Bot is ready and logged in as {client.user}")
@@ -711,22 +711,13 @@ async def on_ready():
     CHANNEL_FILTERS = load_channel_filters()
     logging.info("Configurations reloaded successfully.")
 
-    # Force sync commands with Discord
     try:
-        await client.tree.sync()
-        logging.info("Commands have been synced successfully.")
+        # Sync commands only for specific guilds
+        for guild in client.guilds:
+            await client.tree.sync(guild=guild)
+        logging.info("Commands synced successfully.")
     except Exception as e:
         logging.error(f"Error syncing commands: {e}")
-
-    # Log connected guilds for monitoring and check for bans
-    for guild in client.guilds:
-        if guild.id in banned_servers:
-            logging.warning(f"Bot is banned from server: {guild.name} (ID: {guild.id}). Leaving...")
-            await guild.leave()
-        else:
-            logging.info(f"Connected to server: {guild.name} (ID: {guild.id})")
-
-    logging.info("Bot is ready to receive updates and relay messages.")
 
 @client.event
 async def on_message(message):
