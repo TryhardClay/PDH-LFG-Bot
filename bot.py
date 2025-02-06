@@ -700,8 +700,7 @@ async def generate_tablestream_link(game_data: dict, game_format: GameFormat, pl
 @client.event
 async def on_ready():
     """
-    Event triggered when the bot is ready. Reloads configuration files,
-    logs guild connections, and initializes the bot state.
+    Event triggered when the bot is ready. Batch syncs commands across multiple guilds efficiently.
     """
     logging.info(f"Bot is ready and logged in as {client.user}")
 
@@ -711,10 +710,28 @@ async def on_ready():
     CHANNEL_FILTERS = load_channel_filters()
     logging.info("Configurations reloaded successfully.")
 
-    # Force sync commands with Discord
+    batch_size = 10  # Number of guilds to sync concurrently
+    delay_between_batches = 2  # Delay (in seconds) between batches
+    retry_delay = 2  # Initial retry delay for rate limits (in seconds)
+
     try:
-        await client.tree.sync()
-        logging.info("Commands have been synced successfully.")
+        sync_tasks = []
+
+        for i, guild in enumerate(client.guilds):
+            logging.info(f"Scheduling sync for guild: {guild.name} (ID: {guild.id})")
+            sync_tasks.append(client.tree.sync(guild=guild))
+
+            # When the batch is full, execute the sync tasks
+            if len(sync_tasks) == batch_size:
+                await execute_batch_with_retries(sync_tasks, retry_delay)
+                sync_tasks = []  # Clear the batch
+                await asyncio.sleep(delay_between_batches)  # Delay between batches
+
+        # Execute any remaining tasks
+        if sync_tasks:
+            await execute_batch_with_retries(sync_tasks, retry_delay)
+
+        logging.info("All guild commands synced successfully.")
     except Exception as e:
         logging.error(f"Error syncing commands: {e}")
 
@@ -727,6 +744,24 @@ async def on_ready():
             logging.info(f"Connected to server: {guild.name} (ID: {guild.id})")
 
     logging.info("Bot is ready to receive updates and relay messages.")
+
+
+async def execute_batch_with_retries(tasks, retry_delay):
+    """
+    Execute a batch of tasks and handle rate limits with exponential backoff.
+    """
+    while tasks:
+        try:
+            await asyncio.gather(*tasks)  # Attempt to execute all tasks
+            return  # If successful, exit the retry loop
+        except discord.HTTPException as e:
+            if e.status == 429:  # Rate limit hit
+                logging.warning(f"Rate limit hit during batch sync. Retrying after {retry_delay} seconds.")
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, 64)  # Exponential backoff with a max delay of 64 seconds
+            else:
+                logging.error(f"Error during batch sync: {e}")
+                break  # Exit if the error is not rate limit-related
 
 @client.event
 async def on_message(message):
