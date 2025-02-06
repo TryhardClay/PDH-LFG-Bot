@@ -719,6 +719,17 @@ async def on_ready():
     except Exception as e:
         logging.error(f"Error syncing commands: {e}")
 
+    # Log connected guilds for monitoring and check for bans
+    for guild in client.guilds:
+        if guild.id in banned_servers:
+            logging.warning(f"Bot is banned from server: {guild.name} (ID: {guild.id}). Leaving...")
+            await guild.leave()
+        else:
+            logging.info(f"Connected to server: {guild.name} (ID: {guild.id})")
+
+    logging.info("Bot is ready to receive updates and relay messages.")
+
+@client.event
 @client.event
 async def on_message(message):
     """
@@ -764,10 +775,9 @@ async def on_message(message):
             if source_channel_id != destination_channel_id:
                 destination_filter = str(CHANNEL_FILTERS.get(destination_channel_id, 'none'))  # Ensure string type
                 # Only relay text messages to *txt channels
-                if source_filter.endswith('txt') and destination_filter.endswith('txt') and source_filter == destination_filter:
-                    destination_channel = client.get_channel(int(destination_channel_id.split('_')[1]))
-                    if destination_channel:
-                        await relay_text_message(message, destination_channel)
+                destination_channel = client.get_channel(int(destination_channel_id.split('_')[1])) or await client.fetch_channel(int(destination_channel_id.split('_')[1]))
+                if source_filter.endswith('txt') and destination_filter.endswith('txt') and source_filter == destination_filter and destination_channel:
+                    await relay_text_message(message, destination_channel)
 
 @client.event
 async def on_message_edit(before, after):
