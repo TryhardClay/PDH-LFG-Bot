@@ -31,12 +31,6 @@ RATE_LIMIT_DELAY = 0.5  # Default delay between API calls to prevent spamming
 
 message_map = {}
 
-# Global cache to store guilds and channels to minimize API calls
-cache = {
-    "guilds": {},
-    "channels": {}
-}
-
 # BigLFG Embed Tracking
 active_embeds = {}  # Independently managed
 
@@ -204,31 +198,6 @@ def save_trusted_admins():
 # Load data on startup
 banned_users = load_banned_users()
 trusted_admins = load_trusted_admins()
-
-#Save and Load Cache
-def save_cache():
-    with open("/var/data/cache.json", "w") as f:
-        json.dump(
-            {
-                "guilds": list(cache["guilds"].keys()),
-                "channels": list(cache["channels"].keys())
-            },
-            f,
-            indent=4
-        )
-
-def load_cache():
-    try:
-        with open("/var/data/cache.json", "r") as f:
-            data = json.load(f)
-            for guild_id in data["guilds"]:
-                guild = client.get_guild(guild_id)
-                if guild:
-                    cache["guilds"][guild.id] = guild
-                    for channel in guild.channels:
-                        cache["channels"][channel.id] = channel
-    except FileNotFoundError:
-        logging.warning("Cache file not found. Starting with an empty cache.")
 
 class GameFormat(Enum):
     PAUPER_EDH = "Pauper EDH"
@@ -731,7 +700,7 @@ async def generate_tablestream_link(game_data: dict, game_format: GameFormat, pl
 @client.event
 async def on_ready():
     """
-    Optimized event triggered when the bot is ready. Reloads configuration files,
+    Event triggered when the bot is ready. Reloads configuration files,
     logs guild connections, and initializes the bot state.
     """
     logging.info(f"Bot is ready and logged in as {client.user}")
@@ -742,16 +711,10 @@ async def on_ready():
     CHANNEL_FILTERS = load_channel_filters()
     logging.info("Configurations reloaded successfully.")
 
-    # Populate cache with guild and channel data
-    for guild in client.guilds:
-        cache["guilds"][guild.id] = guild
-        for channel in guild.channels:
-            cache["channels"][channel.id] = channel
-
+    # Force sync commands with Discord
     try:
-        # Sync commands globally once to reduce API load
         await client.tree.sync()
-        logging.info("Commands synced globally successfully.")
+        logging.info("Commands have been synced successfully.")
     except Exception as e:
         logging.error(f"Error syncing commands: {e}")
 
@@ -809,11 +772,11 @@ async def on_message(message):
         for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
             if source_channel_id != destination_channel_id:
                 destination_filter = str(CHANNEL_FILTERS.get(destination_channel_id, 'none'))  # Ensure string type
-                channel_id = int(destination_channel_id.split('_')[1])
-                destination_channel = cache["channels"].get(channel_id) or await client.fetch_channel(channel_id)
-
-                if source_filter.endswith('txt') and destination_filter.endswith('txt') and source_filter == destination_filter and destination_channel:
-                    await relay_text_message(message, destination_channel)
+                # Only relay text messages to *txt channels
+                if source_filter.endswith('txt') and destination_filter.endswith('txt') and source_filter == destination_filter:
+                    destination_channel = client.get_channel(int(destination_channel_id.split('_')[1]))
+                    if destination_channel:
+                        await relay_text_message(message, destination_channel)
 
 @client.event
 async def on_message_edit(before, after):
@@ -964,9 +927,6 @@ async def on_guild_join(guild):
         await guild.leave()
     else:
         logging.info(f"Joined new server: {guild.name} (ID: {guild.id})")
-        cache["guilds"][guild.id] = guild  # Cache the new guild
-        for channel in guild.channels:
-            cache["channels"][channel.id] = channel  # Cache the new channels
 
 @client.event
 async def on_guild_remove(guild):
@@ -1509,25 +1469,26 @@ async def message_relay_loop():
 # -------------------------------------------------------------------------
 
 async def start_bot():
-    retry_attempt = 1
-
+    """
+    Asynchronous function to start the bot with rate-limit handling.
+    """
     while True:
         try:
             logging.info("Starting the bot...")
             await client.start(TOKEN)
             break  # Exit the loop if successful
         except discord.HTTPException as e:
-            if e.status == 429:  # Rate limit
-                retry_after = min(2 ** retry_attempt, 64)  # Exponential backoff with a max wait of 64 seconds
+            if e.status == 429:
+                retry_after = int(e.response.headers.get("Retry-After", 1)) / 1000
                 logging.critical(f"Rate limit hit during bot start! Retrying after {retry_after} seconds.")
                 await asyncio.sleep(retry_after)
-                retry_attempt += 1
             else:
                 logging.critical(f"Discord API error while starting the bot: {e}")
                 break
         except Exception as e:
             logging.critical(f"Critical error while starting the bot: {e}")
             break
+
 
 if __name__ == "__main__":
     try:
