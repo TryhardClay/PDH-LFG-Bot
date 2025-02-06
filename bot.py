@@ -710,9 +710,9 @@ async def on_ready():
     CHANNEL_FILTERS = load_channel_filters()
     logging.info("Configurations reloaded successfully.")
 
-    batch_size = 10  # Number of guilds to sync concurrently
-    delay_between_batches = 2  # Delay (in seconds) between batches
-    retry_delay = 2  # Initial retry delay for rate limits (in seconds)
+    batch_size = 1  # Number of guilds to sync concurrently
+    delay_between_batches = 5  # Delay (in seconds) between batches
+    retry_delay = 5  # Initial retry delay for rate limits (in seconds)
 
     try:
         sync_tasks = []
