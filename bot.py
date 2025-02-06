@@ -1064,6 +1064,23 @@ async def updateconfig(interaction: discord.Interaction):
         logging.error(f"Error during /updateconfig: {e}")
         await interaction.followup.send(f"An error occurred while reloading configuration or syncing commands: {e}", ephemeral=True)
 
+@client.tree.command(name="addspelltable", description="Add a SpellTable link (only links starting with 'https://').")
+async def addspelltable(interaction: discord.Interaction, link: str):
+    """
+    Command to allow users to add a SpellTable link. Only links starting with 'https://' are permitted.
+    """
+    if not link.startswith("https://"):
+        await interaction.response.send_message(
+            "Invalid input. Please enter a valid link starting with 'https://'.",
+            ephemeral=True
+        )
+        return
+
+    # Confirm valid link submission
+    await interaction.response.send_message(
+        f"SpellTable link successfully added: {link}", ephemeral=True
+    )
+
 @client.tree.command(name="about", description="Show information about the bot and its commands.")
 async def about(interaction: discord.Interaction):
     """
@@ -1102,6 +1119,7 @@ async def about(interaction: discord.Interaction):
              value=(
                 "**/biglfg** - Create a cross-server LFG request and automatically manage player listings.\n"
                 "**/gamerequest** - Generate a personal TableStream game link.\n"
+                "**/addspelltable** - Add your own custom SpellTable link to an lfg chat.\n"
                 "**/about** - Display details about the bot, commands, and usage."
             ),
             inline=False
@@ -1113,7 +1131,6 @@ async def about(interaction: discord.Interaction):
             value=(
                 "**/setchannel (admin)** - Set a channel for cross-server communication.\n"
                 "**/disconnect (admin)** - Remove a channel from cross-server communication.\n"
-                "**/updateconfig (admin)** - Reload the bot's configuration and resync commands.\n"
                 "**/listadmins (admin)** - Display a list of current bot super admins."
             ),
             inline=False
@@ -1125,6 +1142,8 @@ async def about(interaction: discord.Interaction):
             value=(
                 "**/banuser (restricted)** - Ban a user by User ID # from posting in bot-controlled channels and using commands.\n"
                 "**/unbanuser (restricted)** - Unban a previously banned user.\n"
+                "**/banserver (restricted)** - Ban a server by Server ID # from accessing the bot.\n"
+                "**/unbanserver (restricted)** - Unban a previously banned server.\n"
                 "**/listbans (restricted)** - Display a list of currently banned users along with their details.\n"
             ),
             inline=False
