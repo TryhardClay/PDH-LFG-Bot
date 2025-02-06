@@ -123,6 +123,9 @@ def load_webhook_data():
         logging.error(f"Error decoding JSON from {PERSISTENT_DATA_PATH}: {e}")
         return {}
 
+# Create a global aiohttp session
+global_aiohttp_session = aiohttp.ClientSession()
+
 # Load channel filters from persistent storage
 def load_channel_filters():
     try:
@@ -223,35 +226,31 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
     Send a message using a webhook to a specific channel.
     Handles content, embeds, username attribution, and avatar.
     """
-    async with aiohttp.ClientSession() as session:
-        data = {}
-        if content:
-            data["content"] = content
-        if embeds:
-            data["embeds"] = embeds
-        if username:
-            data["username"] = username
-        if avatar_url:
-            data["avatar_url"] = avatar_url
+    data = {}
+    if content:
+        data["content"] = content
+    if embeds:
+        data["embeds"] = embeds
+    if username:
+        data["username"] = username
+    if avatar_url:
+        data["avatar_url"] = avatar_url
 
-        try:
-            async with session.post(webhook_url, json=data) as response:
-                if response.status == 204:
-                    logging.info(f"Message sent successfully to webhook at {webhook_url}.")
-                    return None  # No content to parse
-                elif response.status >= 200 and response.status < 300:
-                    logging.info(f"Message sent to webhook at {webhook_url} with response: {response.status}")
-                    return await response.json()  # Parse response only for non-204 success codes
-                else:
-                    logging.error(f"Failed to send message. Status code: {response.status}")
-                    logging.error(await response.text())
-        except aiohttp.ClientError as e:
-            logging.error(f"aiohttp.ClientError: {e}")
-        except discord.HTTPException as e:
-            logging.error(f"discord.HTTPException: {e}")
-        except Exception as e:
-            logging.error(f"An unexpected error occurred: {e}")
-
+    try:
+        async with global_aiohttp_session.post(webhook_url, json=data) as response:
+            if response.status == 204:
+                logging.info(f"Message sent successfully to webhook at {webhook_url}.")
+                return None  # No content to parse
+            elif 200 <= response.status < 300:
+                logging.info(f"Message sent to webhook at {webhook_url} with response: {response.status}")
+                return await response.json()  # Parse response only for non-204 success codes
+            else:
+                logging.error(f"Failed to send message. Status code: {response.status}")
+                logging.error(await response.text())
+    except aiohttp.ClientError as e:
+        logging.error(f"aiohttp.ClientError: {e}")
+    except Exception as e:
+        logging.error(f"An unexpected error occurred: {e}")
     return None
 
 def save_webhook_data():
@@ -953,6 +952,11 @@ async def on_guild_remove(guild):
     """
     logging.info(f"Bot removed from server: {guild.name} (ID: {guild.id})")
     # Further cleanup logic (if required) can be added here
+
+@client.event
+async def on_close():
+    logging.info("Closing aiohttp session...")
+    await global_aiohttp_session.close()
 
 # -------------------------------------------------------------------------
 # Role Management
