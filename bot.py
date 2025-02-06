@@ -712,10 +712,9 @@ async def on_ready():
     logging.info("Configurations reloaded successfully.")
 
     try:
-        # Sync commands only for specific guilds
-        for guild in client.guilds:
-            await client.tree.sync(guild=guild)
-        logging.info("Commands synced successfully.")
+        # Sync commands globally once to reduce API load
+        await client.tree.sync()
+        logging.info("Commands synced globally successfully.")
     except Exception as e:
         logging.error(f"Error syncing commands: {e}")
 
@@ -729,7 +728,6 @@ async def on_ready():
 
     logging.info("Bot is ready to receive updates and relay messages.")
 
-@client.event
 @client.event
 async def on_message(message):
     """
@@ -1470,26 +1468,25 @@ async def message_relay_loop():
 # -------------------------------------------------------------------------
 
 async def start_bot():
-    """
-    Asynchronous function to start the bot with rate-limit handling.
-    """
+    retry_attempt = 1
+
     while True:
         try:
             logging.info("Starting the bot...")
             await client.start(TOKEN)
             break  # Exit the loop if successful
         except discord.HTTPException as e:
-            if e.status == 429:
-                retry_after = int(e.response.headers.get("Retry-After", 1)) / 1000
+            if e.status == 429:  # Rate limit
+                retry_after = min(2 ** retry_attempt, 64)  # Exponential backoff with a max wait of 64 seconds
                 logging.critical(f"Rate limit hit during bot start! Retrying after {retry_after} seconds.")
                 await asyncio.sleep(retry_after)
+                retry_attempt += 1
             else:
                 logging.critical(f"Discord API error while starting the bot: {e}")
                 break
         except Exception as e:
             logging.critical(f"Critical error while starting the bot: {e}")
             break
-
 
 if __name__ == "__main__":
     try:
