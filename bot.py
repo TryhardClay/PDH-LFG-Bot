@@ -31,6 +31,12 @@ RATE_LIMIT_DELAY = 0.5  # Default delay between API calls to prevent spamming
 
 message_map = {}
 
+# Global cache to store guilds and channels to minimize API calls
+cache = {
+    "guilds": {},
+    "channels": {}
+}
+
 # BigLFG Embed Tracking
 active_embeds = {}  # Independently managed
 
@@ -198,6 +204,31 @@ def save_trusted_admins():
 # Load data on startup
 banned_users = load_banned_users()
 trusted_admins = load_trusted_admins()
+
+#Save and Load Cache
+def save_cache():
+    with open("/var/data/cache.json", "w") as f:
+        json.dump(
+            {
+                "guilds": list(cache["guilds"].keys()),
+                "channels": list(cache["channels"].keys())
+            },
+            f,
+            indent=4
+        )
+
+def load_cache():
+    try:
+        with open("/var/data/cache.json", "r") as f:
+            data = json.load(f)
+            for guild_id in data["guilds"]:
+                guild = client.get_guild(guild_id)
+                if guild:
+                    cache["guilds"][guild.id] = guild
+                    for channel in guild.channels:
+                        cache["channels"][channel.id] = channel
+    except FileNotFoundError:
+        logging.warning("Cache file not found. Starting with an empty cache.")
 
 class GameFormat(Enum):
     PAUPER_EDH = "Pauper EDH"
@@ -711,6 +742,12 @@ async def on_ready():
     CHANNEL_FILTERS = load_channel_filters()
     logging.info("Configurations reloaded successfully.")
 
+    # Populate cache with guild and channel data
+    for guild in client.guilds:
+        cache["guilds"][guild.id] = guild
+        for channel in guild.channels:
+            cache["channels"][channel.id] = channel
+
     try:
         # Sync commands globally once to reduce API load
         await client.tree.sync()
@@ -772,8 +809,9 @@ async def on_message(message):
         for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
             if source_channel_id != destination_channel_id:
                 destination_filter = str(CHANNEL_FILTERS.get(destination_channel_id, 'none'))  # Ensure string type
-                # Only relay text messages to *txt channels
-                destination_channel = client.get_channel(int(destination_channel_id.split('_')[1])) or await client.fetch_channel(int(destination_channel_id.split('_')[1]))
+                channel_id = int(destination_channel_id.split('_')[1])
+                destination_channel = cache["channels"].get(channel_id) or await client.fetch_channel(channel_id)
+
                 if source_filter.endswith('txt') and destination_filter.endswith('txt') and source_filter == destination_filter and destination_channel:
                     await relay_text_message(message, destination_channel)
 
@@ -926,6 +964,9 @@ async def on_guild_join(guild):
         await guild.leave()
     else:
         logging.info(f"Joined new server: {guild.name} (ID: {guild.id})")
+        cache["guilds"][guild.id] = guild  # Cache the new guild
+        for channel in guild.channels:
+            cache["channels"][channel.id] = channel  # Cache the new channels
 
 @client.event
 async def on_guild_remove(guild):
