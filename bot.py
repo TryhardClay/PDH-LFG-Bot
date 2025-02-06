@@ -1068,6 +1068,7 @@ async def updateconfig(interaction: discord.Interaction):
 async def addspelltable(interaction: discord.Interaction, link: str):
     """
     Command to allow users to add a SpellTable link. Only links starting with 'https://' are permitted.
+    The link is distributed to all connected channels with the same filter.
     """
     if not link.startswith("https://"):
         await interaction.response.send_message(
@@ -1076,10 +1077,36 @@ async def addspelltable(interaction: discord.Interaction, link: str):
         )
         return
 
-    # Confirm valid link submission
-    await interaction.response.send_message(
-        f"SpellTable link successfully added: {link}", ephemeral=True
+    # Prepare the message to be sent to channels
+    embed = discord.Embed(
+        title="New SpellTable Link Added",
+        description=f"**SpellTable Link:** {link}",
+        color=discord.Color.green()
     )
+    embed.set_author(name="PDH LFG Bot", icon_url=IMAGE_URL)
+
+    source_channel_id = f'{interaction.guild.id}_{interaction.channel.id}'
+    source_filter = str(CHANNEL_FILTERS.get(source_channel_id, 'none'))
+
+    # Distribute the embed to all connected channels with the same filter
+    sent_to_channels = 0
+    for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
+        destination_filter = str(CHANNEL_FILTERS.get(destination_channel_id, 'none'))
+        if source_filter == destination_filter:
+            destination_channel = client.get_channel(int(destination_channel_id.split('_')[1]))
+            if destination_channel:
+                await destination_channel.send(embed=embed)
+                sent_to_channels += 1
+
+    # Respond to the user with success or failure
+    if sent_to_channels > 0:
+        await interaction.response.send_message(
+            f"SpellTable link successfully distributed to {sent_to_channels} channel(s).", ephemeral=True
+        )
+    else:
+        await interaction.response.send_message(
+            "No connected channels were found with the same filter to distribute the link.", ephemeral=True
+        )
 
 @client.tree.command(name="about", description="Show information about the bot and its commands.")
 async def about(interaction: discord.Interaction):
