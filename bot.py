@@ -46,6 +46,9 @@ TRUSTED_ADMINS_PATH = "/var/data/trusted_admins.json"
 # Add the IMAGE_URL variable here
 IMAGE_URL = "https://raw.githubusercontent.com/TryhardClay/PDH-LFG-Bot/main/PDHBot.jpg"
 
+# Define banned servers (hardcoded initial value)
+banned_servers = {1136731758281363626, 1336809851451609169}
+
 # Define RateLimiter Class
 class RateLimiter:
     def __init__(self, max_requests: int, period: float):
@@ -152,7 +155,6 @@ def load_banned_users():
         logging.error(f"Error decoding JSON from {BANNED_USERS_PATH}: {e}")
         return {}
 
-# Load trusted admins from persistent storage
 # Load trusted admins from persistent storage
 def load_trusted_admins():
     """
@@ -716,9 +718,13 @@ async def on_ready():
     except Exception as e:
         logging.error(f"Error syncing commands: {e}")
 
-    # Log connected guilds for monitoring
+    # Log connected guilds for monitoring and check for bans
     for guild in client.guilds:
-        logging.info(f"Connected to server: {guild.name} (ID: {guild.id})")
+        if guild.id in banned_servers:
+            logging.warning(f"Bot is banned from server: {guild.name} (ID: {guild.id}). Leaving...")
+            await guild.leave()
+        else:
+            logging.info(f"Connected to server: {guild.name} (ID: {guild.id})")
 
     logging.info("Bot is ready to receive updates and relay messages.")
 
@@ -909,6 +915,18 @@ async def on_reaction_remove(reaction, user):
         logging.warning(f"Message ID {reaction.message.id} not found in message_map. Cannot propagate reaction removals.")
     except Exception as e:
         logging.error(f"Error in on_reaction_remove: {e}")
+
+@client.event
+async def on_guild_join(guild):
+    """
+    Event triggered when the bot joins a new server.
+    Checks if the server is banned, and leaves if necessary.
+    """
+    if guild.id in banned_servers:
+        logging.warning(f"Joined a banned server: {guild.name} (ID: {guild.id}). Leaving immediately.")
+        await guild.leave()
+    else:
+        logging.info(f"Joined new server: {guild.name} (ID: {guild.id})")
 
 @client.event
 async def on_guild_remove(guild):
@@ -1326,6 +1344,46 @@ async def listbans(interaction: discord.Interaction):
         ban_list += f"- **{user_name}** (ID: {user_id}) - **Reason:** {data.get('reason', 'No reason provided')}{expiration}\n"
 
     await interaction.response.send_message(ban_list, ephemeral=True)
+
+@client.tree.command(name="banserver", description="Ban a server from using the bot. (restricted)")
+async def banserver(interaction: discord.Interaction, server_id: int):
+    """
+    Bans a server from using the bot, forcing the bot to leave immediately.
+    Restricted to super admins.
+    """
+    if interaction.user.id not in trusted_admins:
+        logging.warning(f"Unauthorized /banserver attempt by {interaction.user.name} (ID: {interaction.user.id})")
+        await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
+        return
+
+    banned_servers.add(server_id)  # Add server ID to the banned list
+    logging.info(f"Server with ID {server_id} has been banned by {interaction.user.name}.")
+
+    # Check if the bot is currently in the banned server
+    guild = discord.utils.get(client.guilds, id=server_id)
+    if guild:
+        await guild.leave()
+        logging.info(f"Bot left the banned server: {guild.name} (ID: {server_id})")
+
+    await interaction.response.send_message(f"Server with ID {server_id} has been banned successfully.", ephemeral=True)
+
+@client.tree.command(name="unbanserver", description="Unban a server from using the bot. (restricted)")
+async def unbanserver(interaction: discord.Interaction, server_id: int):
+    """
+    Unbans a server, allowing it to use the bot again.
+    Restricted to super admins.
+    """
+    if interaction.user.id not in trusted_admins:
+        logging.warning(f"Unauthorized /unbanserver attempt by {interaction.user.name} (ID: {interaction.user.id})")
+        await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
+        return
+
+    if server_id in banned_servers:
+        banned_servers.remove(server_id)
+        logging.info(f"Server with ID {server_id} has been unbanned by {interaction.user.name}.")
+        await interaction.response.send_message(f"Server with ID {server_id} has been unbanned successfully.", ephemeral=True)
+    else:
+        await interaction.response.send_message(f"Server with ID {server_id} is not currently banned.", ephemeral=True)
 
 @client.tree.command(name="listadmins", description="List all trusted administrators.")
 async def listadmins(interaction: discord.Interaction):
