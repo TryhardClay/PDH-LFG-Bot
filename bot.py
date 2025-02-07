@@ -63,9 +63,19 @@ class RateLimiter:
         self.requests = asyncio.Queue()
         self.lock = asyncio.Lock()
 
-    async def acquire(self):
+    async def acquire(self, retry_after: float = None):
+        """
+        Dynamically acquire a rate limit token.
+        If retry_after is provided, wait for that duration.
+        """
         async with self.lock:
+            if retry_after:
+                logging.warning(f"Delaying for {retry_after:.2f} seconds due to Retry-After header.")
+                await asyncio.sleep(retry_after)
+
             now = datetime.now()
+
+            # Remove expired requests from the queue
             while not self.requests.empty():
                 if (now - self.requests.queue[0]).total_seconds() > self.period:
                     await self.requests.get()
@@ -81,31 +91,39 @@ class RateLimiter:
 
 # Define PauseManager Class
 class PauseManager:
-    def __init__(self, violation_threshold: int, pause_duration: int):
+    def __init__(self, violation_threshold: int, pause_duration: int, grace_period: int = 300):
         """
         Initialize the pause manager.
         :param violation_threshold: Number of rate limit violations to trigger a pause.
         :param pause_duration: Duration (in seconds) of the pause.
+        :param grace_period: Time period to reset violations if no new violations occur.
         """
         self.violation_threshold = violation_threshold
         self.pause_duration = pause_duration
+        self.grace_period = grace_period  # Extend reset timing for more robust checks
         self.violations = 0
         self.last_violation_time = datetime.now()
 
-    async def handle_violation(self):
+    async def handle_violation(self, retry_after: float = None):
         now = datetime.now()
-        if (now - self.last_violation_time).total_seconds() > 60:
-            self.violations = 0  # Reset violations after 1 minute
+
+        # Reset violations if enough time has passed
+        if (now - self.last_violation_time).total_seconds() > self.grace_period:
+            self.violations = 0
+
         self.violations += 1
         self.last_violation_time = now
 
         if self.violations >= self.violation_threshold:
             logging.critical(f"Too many rate limit violations! Pausing for {self.pause_duration} seconds.")
             await asyncio.sleep(self.pause_duration)
-            self.violations = 0
+            self.violations = 0  # Reset after pause
+        elif retry_after:
+            logging.warning(f"Rate limit violation detected. Waiting {retry_after} seconds.")
+            await asyncio.sleep(retry_after)
 
 # Initialize RateLimiter and PauseManager
-rate_limiter = RateLimiter(max_requests=30, period=1)  # Adjust to Discord limits
+rate_limiter = RateLimiter(max_requests=50, period=1)  # Adjust to Discord limits
 pause_manager = PauseManager(violation_threshold=5, pause_duration=30)
 
 # Load webhook data from persistent storage with validation
@@ -231,10 +249,29 @@ async def initialize_aiohttp_session():
         global_aiohttp_session = aiohttp.ClientSession()
         logging.info("Global aiohttp session initialized successfully.")
 
+async def safe_discord_request(session, method, url, rate_limiter, pause_manager, **kwargs):
+    while True:
+        async with session.request(method, url, **kwargs) as response:
+            if response.status == 429:
+                retry_after = float(response.headers.get("Retry-After", 1))
+                rate_limit_remaining = int(response.headers.get("X-RateLimit-Remaining", 0))
+
+                # Pass information to the rate limiter and pause manager
+                await rate_limiter.acquire(rate_limit_remaining, retry_after)
+                await pause_manager.handle_violation(retry_after)
+                continue  # Retry the request after handling
+
+            elif response.status >= 500:  # Handle server errors
+                logging.error(f"Server error {response.status}. Retrying...")
+                await asyncio.sleep(2)  # Simple retry delay for server errors
+                continue
+
+            return await response.json()  # Successfully handle response
+
 async def send_webhook_message(webhook_url, content=None, embeds=None, username=None, avatar_url=None):
     """
     Send a message using a webhook to a specific channel.
-    Handles content, embeds, username attribution, and avatar.
+    Handles rate limits using RateLimiter.
     """
     data = {}
     if content:
@@ -246,23 +283,32 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
     if avatar_url:
         data["avatar_url"] = avatar_url
 
-    try:
-        # Use the global aiohttp session for posting the webhook message
-        async with global_aiohttp_session.post(webhook_url, json=data) as response:
-            if response.status == 204:
-                logging.info(f"Message sent successfully to webhook at {webhook_url}.")
-                return None  # No content to parse
-            elif 200 <= response.status < 300:
-                logging.info(f"Message sent to webhook at {webhook_url} with response: {response.status}")
-                return await response.json()  # Parse response only for non-204 success codes
-            else:
-                logging.error(f"Failed to send message. Status code: {response.status}")
-                logging.error(await response.text())
-    except aiohttp.ClientError as e:
-        logging.error(f"aiohttp.ClientError: {e}")
-    except Exception as e:
-        logging.error(f"An unexpected error occurred: {e}")
-    return None
+    while True:
+        try:
+            # Acquire a rate limit token before making the request
+            await rate_limiter.acquire()
+
+            async with global_aiohttp_session.post(webhook_url, json=data) as response:
+                if response.status == 429:
+                    retry_after = float(response.headers.get("Retry-After", 1))
+                    logging.warning(f"429 Rate Limit hit. Retrying after {retry_after} seconds.")
+                    
+                    # Use the rate limiter to pause before retrying
+                    await rate_limiter.acquire(retry_after=retry_after)
+                    continue  # Retry the request
+
+                if response.status in (200, 204):
+                    logging.info(f"Message sent successfully to {webhook_url}.")
+                    return await response.json() if response.status != 204 else None
+
+                logging.error(f"Failed to send message. Status: {response.status}, Error: {await response.text()}")
+
+        except aiohttp.ClientError as e:
+            logging.error(f"aiohttp.ClientError: {e}")
+            await asyncio.sleep(2)
+        except Exception as e:
+            logging.error(f"Unexpected error: {e}")
+            await asyncio.sleep(2)
 
 def save_webhook_data():
     """
