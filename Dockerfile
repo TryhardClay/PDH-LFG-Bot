@@ -1,17 +1,17 @@
-FROM python:3.9-slim-buster
+FROM python:3.9-slim
 
+# Set the working directory
 WORKDIR /app
 
-COPY requirements.txt requirements.txt
-RUN pip install --upgrade pip
-RUN pip install -r requirements.txt --no-cache-dir
+# Copy the requirements file and install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy the bot code into the container
 COPY . .
 
-EXPOSE 54321  # Expose the port
+# Expose necessary ports (optional for webhooks or APIs)
+EXPOSE 8080
 
-# Uninstall and reinstall discord.py
-RUN pip uninstall -y discord.py 
-RUN pip install discord.py==2.3.2
-
-CMD ["python", "bot.py"]
+# Command to run the bot
+CMD ["python", "main.py"]
