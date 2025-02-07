@@ -27,7 +27,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 relayed_text_messages = TTLCache(maxsize=10000, ttl=24 * 60 * 60)  # Max size, TTL, and 24-hour expiration
 
 # Set up global rate limit handling
-RATE_LIMIT_DELAY = 0.5  # Default delay between API calls to prevent spamming
+RATE_LIMIT_DELAY = 1  # Default delay between API calls to prevent spamming
 
 message_map = {}
 
@@ -708,7 +708,7 @@ async def generate_tablestream_link(game_data: dict, game_format: GameFormat, pl
 @client.event
 async def on_ready():
     """
-    Optimized event triggered when the bot is ready. Sync commands globally to avoid rate limits.
+    Optimized event triggered when the bot is ready. Stagger command syncing to avoid rate limits.
     Handles rate limits using exponential backoff.
     """
     logging.info(f"Bot is ready and logged in as {client.user}")
@@ -722,32 +722,30 @@ async def on_ready():
     CHANNEL_FILTERS = load_channel_filters()
     logging.info("Configurations reloaded successfully.")
 
-    try:
-        retry_attempts = 0
-        max_retries = 5
-        retry_delay = 5  # Start with 5 seconds delay
+    batch_size = 10  # Sync commands in batches of 10 guilds
+    delay_between_batches = 2  # Delay between batches
+    retry_delay = 5  # Initial retry delay for rate limits
 
-        while retry_attempts < max_retries:
-            try:
-                # Sync commands globally
-                await client.tree.sync()
-                logging.info("Global command sync completed successfully.")
-                break  # Exit loop if successful
-            except discord.HTTPException as e:
-                if e.status == 429:  # Rate limit hit
-                    retry_attempts += 1
-                    logging.warning(f"Rate limit hit during global sync. Retrying in {retry_delay} seconds.")
-                    await asyncio.sleep(retry_delay)
-                    retry_delay = min(retry_delay * 2, 60)  # Double the delay with a maximum of 60 seconds
-                else:
-                    logging.error(f"Unexpected error during global sync: {e}")
-                    break
-        else:
-            logging.critical("Failed to sync commands after maximum retries.")
+    try:
+        sync_tasks = []
+        for i, guild in enumerate(client.guilds):
+            sync_tasks.append(client.tree.sync(guild=guild))
+
+            # Process batches
+            if len(sync_tasks) == batch_size:
+                await execute_batch_with_retries(sync_tasks, retry_delay)
+                sync_tasks = []  # Clear batch
+                await asyncio.sleep(delay_between_batches)  # Delay between batches
+
+        # Sync any remaining tasks
+        if sync_tasks:
+            await execute_batch_with_retries(sync_tasks, retry_delay)
+
+        logging.info("All commands synced successfully.")
     except Exception as e:
         logging.error(f"Error syncing commands: {e}")
 
-    # Log connected guilds for monitoring and check for bans
+    # Log connected guilds and check for bans
     for guild in client.guilds:
         if guild.id in banned_servers:
             logging.warning(f"Bot is banned from server: {guild.name} (ID: {guild.id}). Leaving...")
@@ -756,6 +754,24 @@ async def on_ready():
             logging.info(f"Connected to server: {guild.name} (ID: {guild.id})")
 
     logging.info("Bot is ready to receive updates and relay messages.")
+
+
+async def execute_batch_with_retries(tasks, retry_delay):
+    """
+    Execute a batch of tasks and handle rate limits with exponential backoff.
+    """
+    while tasks:
+        try:
+            await asyncio.gather(*tasks)  # Attempt to execute tasks concurrently
+            return  # Exit on success
+        except discord.HTTPException as e:
+            if e.status == 429:  # Rate limit error
+                logging.warning(f"Rate limit hit during command sync. Retrying after {retry_delay} seconds.")
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, 60)  # Exponential backoff, up to 60 seconds
+            else:
+                logging.error(f"Unexpected error during command sync: {e}")
+                break
 
 @client.event
 async def on_message(message):
@@ -1512,16 +1528,30 @@ async def start_bot():
     Asynchronous function to start the bot with rate-limit handling.
     Ensures aiohttp session cleanup on shutdown.
     """
-    try:
-        logging.info("Starting the bot...")
-        await client.start(TOKEN)
-    except Exception as e:
-        logging.critical(f"Critical error during bot startup: {e}")
-    finally:
-        if global_aiohttp_session:
-            logging.info("Closing aiohttp session during shutdown...")
-            await global_aiohttp_session.close()
+    retry_delay = 5  # Start with 5 seconds delay for retries
+    max_retries = 5  # Retry up to 5 times
 
+    for attempt in range(max_retries):
+        try:
+            logging.info(f"Starting the bot... Attempt {attempt + 1} of {max_retries}")
+            await client.start(TOKEN)
+            return  # Exit on success
+        except discord.HTTPException as e:
+            if e.status == 429:  # Rate limit error
+                retry_delay = retry_delay * (2 ** attempt)  # Exponential backoff
+                logging.critical(f"Rate limit hit during bot startup. Retrying after {delay} seconds.")
+                await asyncio.sleep(delay)
+            else:
+                logging.critical(f"Unexpected error during bot startup: {e}")
+                break  # Exit on non-rate-limit errors
+        except Exception as e:
+            logging.critical(f"Critical error during bot startup: {e}")
+            break
+
+    # Final cleanup if retries are exhausted
+    if global_aiohttp_session:
+        logging.info("Closing aiohttp session after retries exhausted...")
+        await global_aiohttp_session.close()
 
 if __name__ == "__main__":
     try:
