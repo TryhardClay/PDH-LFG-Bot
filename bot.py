@@ -124,7 +124,7 @@ def load_webhook_data():
         return {}
 
 # Create a global aiohttp session
-global_aiohttp_session = aiohttp.ClientSession()
+global_aiohttp_session = None
 
 # Load channel filters from persistent storage
 def load_channel_filters():
@@ -220,6 +220,14 @@ client = commands.Bot(command_prefix='/', intents=intents)
 # -------------------------------------------------------------------------
 # Webhook Functions
 # -------------------------------------------------------------------------
+
+async def initialize_aiohttp_session():
+    """
+    Initializes the aiohttp session to be used globally across the bot.
+    """
+    global global_aiohttp_session
+    global_aiohttp_session = aiohttp.ClientSession()
+    logging.info("Global aiohttp session initialized successfully.")
 
 async def send_webhook_message(webhook_url, content=None, embeds=None, username=None, avatar_url=None):
     """
@@ -704,6 +712,9 @@ async def on_ready():
     """
     logging.info(f"Bot is ready and logged in as {client.user}")
 
+    # Initialize aiohttp session
+    await initialize_aiohttp_session()
+
     # Reload configurations from persistent storage
     global WEBHOOK_URLS, CHANNEL_FILTERS
     WEBHOOK_URLS = load_webhook_data()
@@ -955,8 +966,9 @@ async def on_guild_remove(guild):
 
 @client.event
 async def on_close():
-    logging.info("Closing aiohttp session...")
-    await global_aiohttp_session.close()
+    if global_aiohttp_session:
+        logging.info("Closing aiohttp session...")
+        await global_aiohttp_session.close()
 
 # -------------------------------------------------------------------------
 # Role Management
