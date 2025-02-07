@@ -755,6 +755,10 @@ async def generate_tablestream_link(game_data: dict, game_format: GameFormat, pl
 
 @client.event
 async def on_ready():
+    """
+    Optimized event triggered when the bot is ready. Stagger command syncing to avoid rate limits.
+    Handles rate limits using exponential backoff.
+    """
     logging.info(f"Bot is ready and logged in as {client.user}")
 
     # Initialize aiohttp session
@@ -775,11 +779,13 @@ async def on_ready():
         for i, guild in enumerate(client.guilds):
             sync_tasks.append(client.tree.sync(guild=guild))
 
+            # Process batches
             if len(sync_tasks) == batch_size:
                 await execute_batch_with_retries(sync_tasks, retry_delay)
-                sync_tasks = []
-                await asyncio.sleep(delay_between_batches)
+                sync_tasks = []  # Clear batch
+                await asyncio.sleep(delay_between_batches)  # Delay between batches
 
+        # Sync any remaining tasks
         if sync_tasks:
             await execute_batch_with_retries(sync_tasks, retry_delay)
 
@@ -787,7 +793,16 @@ async def on_ready():
     except Exception as e:
         logging.error(f"Error syncing commands: {e}")
 
+    # Log connected guilds and check for bans
+    for guild in client.guilds:
+        if guild.id in banned_servers:
+            logging.warning(f"Bot is banned from server: {guild.name} (ID: {guild.id}). Leaving...")
+            await guild.leave()
+        else:
+            logging.info(f"Connected to server: {guild.name} (ID: {guild.id})")
+
     logging.info("Bot is ready to receive updates and relay messages.")
+
 
 async def execute_batch_with_retries(tasks, retry_delay):
     """
@@ -996,12 +1011,15 @@ async def on_reaction_remove(reaction, user):
 
 @client.event
 async def on_guild_join(guild):
-    try:
-        logging.info(f"Joined new server: {guild.name} (ID: {guild.id}). Syncing commands...")
-        await client.tree.sync(guild=guild)
-        logging.info(f"Commands synced successfully for server: {guild.name}")
-    except Exception as e:
-        logging.error(f"Error syncing commands for {guild.name} (ID: {guild.id}): {e}")
+    """
+    Event triggered when the bot joins a new server.
+    Checks if the server is banned, and leaves if necessary.
+    """
+    if guild.id in banned_servers:
+        logging.warning(f"Joined a banned server: {guild.name} (ID: {guild.id}). Leaving immediately.")
+        await guild.leave()
+    else:
+        logging.info(f"Joined new server: {guild.name} (ID: {guild.id})")
 
 @client.event
 async def on_guild_remove(guild):
@@ -1011,6 +1029,7 @@ async def on_guild_remove(guild):
     logging.info(f"Bot removed from server: {guild.name} (ID: {guild.id})")
     # Further cleanup logic (if required) can be added here
 
+@client.event
 @client.event
 async def on_close():
     """
