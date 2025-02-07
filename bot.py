@@ -1538,9 +1538,9 @@ async def start_bot():
             return  # Exit on success
         except discord.HTTPException as e:
             if e.status == 429:  # Rate limit error
-                retry_delay = retry_delay * (2 ** attempt)  # Exponential backoff
-                logging.critical(f"Rate limit hit during bot startup. Retrying after {delay} seconds.")
-                await asyncio.sleep(delay)
+                retry_after = retry_delay * (2 ** attempt)  # Exponential backoff
+                logging.critical(f"Rate limit hit during bot startup. Retrying after {retry_after} seconds.")
+                await asyncio.sleep(retry_after)
             else:
                 logging.critical(f"Unexpected error during bot startup: {e}")
                 break  # Exit on non-rate-limit errors
@@ -1558,3 +1558,4 @@ if __name__ == "__main__":
         asyncio.run(start_bot())
     except Exception as e:
         logging.critical(f"Unhandled error during bot initialization: {e}")
+
