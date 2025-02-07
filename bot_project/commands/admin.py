@@ -48,12 +48,33 @@ async def list_admins(interaction: discord.Interaction):
 
 @client.tree.command(name="updateconfig", description="Reload the bot's configuration and resync commands. (admin)")
 @commands.has_permissions(administrator=True)
-async def update_config(interaction: discord.Interaction):
+async def updateconfig(interaction: discord.Interaction):
     """
-    Reload the bot's configuration and resync commands with Discord.
+    Reload the bot's configuration from persistent storage, resynchronize commands,
+    and provide feedback on updates. Only available to server administrators.
     """
-    # Logic for reloading configuration
-    await interaction.response.send_message("Configuration reloaded and commands resynced.")
+    if not interaction.user.guild_permissions.administrator:
+        logging.warning(f"Unauthorized /updateconfig attempt by {interaction.user.name} (ID: {interaction.user.id})")
+        await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
+        return
+
+    try:
+        await interaction.response.defer(ephemeral=True)
+
+        # Reload configuration files
+        global WEBHOOK_URLS, CHANNEL_FILTERS
+        WEBHOOK_URLS = load_webhook_data()
+        CHANNEL_FILTERS = load_channel_filters()
+
+        # Resynchronize the command tree
+        await client.tree.sync()
+
+        logging.info(f"Admin {interaction.user.name} reloaded bot configuration and resynced commands.")
+        await interaction.followup.send("Configuration reloaded successfully and command tree synchronized!", ephemeral=True)
+
+    except Exception as e:
+        logging.error(f"Error during /updateconfig: {e}")
+        await interaction.followup.send(f"An error occurred while reloading configuration or syncing commands: {e}", ephemeral=True)
 
 @client.tree.command(name="about", description="Show information about the bot and its commands.")
 async def about(interaction: discord.Interaction):
