@@ -226,8 +226,9 @@ async def initialize_aiohttp_session():
     Initializes the aiohttp session to be used globally across the bot.
     """
     global global_aiohttp_session
-    global_aiohttp_session = aiohttp.ClientSession()
-    logging.info("Global aiohttp session initialized successfully.")
+    if global_aiohttp_session is None:  # Initialize only once
+        global_aiohttp_session = aiohttp.ClientSession()
+        logging.info("Global aiohttp session initialized successfully.")
 
 async def send_webhook_message(webhook_url, content=None, embeds=None, username=None, avatar_url=None):
     """
@@ -684,18 +685,18 @@ async def generate_tablestream_link(game_data: dict, game_format: GameFormat, pl
             "initialScheduleTTLInSeconds": 3600  # 1 hour
         }
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(api_url, json=payload, headers=headers) as response:
-                if response.status == 201:  # HTTP Created
-                    data = await response.json()
-                    room_url = data.get("room", {}).get("roomUrl")
-                    password = data.get("room", {}).get("password")
-                    logging.info(f"Successfully generated TableStream link: {room_url}")
-                    return room_url, password
-                else:
-                    error = await response.json()
-                    logging.error(f"Failed to generate TableStream link. Status: {response.status}, Error: {error}")
-                    return None, None
+        # Use the global aiohttp session
+        async with global_aiohttp_session.post(api_url, json=payload, headers=headers) as response:
+            if response.status == 201:  # HTTP Created
+                data = await response.json()
+                room_url = data.get("room", {}).get("roomUrl")
+                password = data.get("room", {}).get("password")
+                logging.info(f"Successfully generated TableStream link: {room_url}")
+                return room_url, password
+            else:
+                error = await response.json()
+                logging.error(f"Failed to generate TableStream link. Status: {response.status}, Error: {error}")
+                return None, None
     except Exception as e:
         logging.error(f"Error while generating TableStream link: {e}")
         return None, None
@@ -965,7 +966,11 @@ async def on_guild_remove(guild):
     # Further cleanup logic (if required) can be added here
 
 @client.event
+@client.event
 async def on_close():
+    """
+    Handles bot shutdown and closes the aiohttp session.
+    """
     if global_aiohttp_session:
         logging.info("Closing aiohttp session...")
         await global_aiohttp_session.close()
@@ -1505,23 +1510,17 @@ async def message_relay_loop():
 async def start_bot():
     """
     Asynchronous function to start the bot with rate-limit handling.
+    Ensures aiohttp session cleanup on shutdown.
     """
-    while True:
-        try:
-            logging.info("Starting the bot...")
-            await client.start(TOKEN)
-            break  # Exit the loop if successful
-        except discord.HTTPException as e:
-            if e.status == 429:
-                retry_after = int(e.response.headers.get("Retry-After", 1)) / 1000
-                logging.critical(f"Rate limit hit during bot start! Retrying after {retry_after} seconds.")
-                await asyncio.sleep(retry_after)
-            else:
-                logging.critical(f"Discord API error while starting the bot: {e}")
-                break
-        except Exception as e:
-            logging.critical(f"Critical error while starting the bot: {e}")
-            break
+    try:
+        logging.info("Starting the bot...")
+        await client.start(TOKEN)
+    except Exception as e:
+        logging.critical(f"Critical error during bot startup: {e}")
+    finally:
+        if global_aiohttp_session:
+            logging.info("Closing aiohttp session during shutdown...")
+            await global_aiohttp_session.close()
 
 
 if __name__ == "__main__":
