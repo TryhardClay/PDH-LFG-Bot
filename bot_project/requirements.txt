@@ -1,0 +1,6 @@
+discord.py
+aiohttp
+aiohttp-retry
+cachetools
+requests
+python-dotenv
