@@ -46,9 +46,6 @@ TRUSTED_ADMINS_PATH = "/var/data/trusted_admins.json"
 # Add the IMAGE_URL variable here
 IMAGE_URL = "https://raw.githubusercontent.com/TryhardClay/PDH-LFG-Bot/main/PDHBot.jpg"
 
-# Define banned servers (hardcoded initial value)
-banned_servers = {1136731758281363626, 1336809851451609169}
-
 # Define RateLimiter Class
 class RateLimiter:
     def __init__(self, max_requests: int, period: float):
@@ -155,6 +152,7 @@ def load_banned_users():
         logging.error(f"Error decoding JSON from {BANNED_USERS_PATH}: {e}")
         return {}
 
+# Load trusted admins from persistent storage
 # Load trusted admins from persistent storage
 def load_trusted_admins():
     """
@@ -718,13 +716,9 @@ async def on_ready():
     except Exception as e:
         logging.error(f"Error syncing commands: {e}")
 
-    # Log connected guilds for monitoring and check for bans
+    # Log connected guilds for monitoring
     for guild in client.guilds:
-        if guild.id in banned_servers:
-            logging.warning(f"Bot is banned from server: {guild.name} (ID: {guild.id}). Leaving...")
-            await guild.leave()
-        else:
-            logging.info(f"Connected to server: {guild.name} (ID: {guild.id})")
+        logging.info(f"Connected to server: {guild.name} (ID: {guild.id})")
 
     logging.info("Bot is ready to receive updates and relay messages.")
 
@@ -734,7 +728,6 @@ async def on_message(message):
     Handles new text messages and propagates them across connected channels.
     Ensures attribution to the original author and respects channel filters.
     Also blocks messages from banned users.
-    Prevents non-slash commands in *lfg channels.
     """
     if message.author == client.user or message.webhook_id:
         return  # Ignore bot messages and webhook messages
@@ -760,20 +753,12 @@ async def on_message(message):
         return  # Prevent relaying of banned messages
 
     source_channel_id = f'{message.guild.id}_{message.channel.id}'
-    source_filter = str(CHANNEL_FILTERS.get(source_channel_id, 'none'))  # Ensure string type
-
-    # Check if the message is in an *lfg channel and not a slash command
-    if source_filter.endswith('lfg') and not message.content.startswith('/'):
-        await message.delete()
-        await message.channel.send(f"Text messages are not allowed in this channel. Please use slash commands.", delete_after=5)
-        return
-
     if source_channel_id in WEBHOOK_URLS:
+        source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
         for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
             if source_channel_id != destination_channel_id:
-                destination_filter = str(CHANNEL_FILTERS.get(destination_channel_id, 'none'))  # Ensure string type
-                # Only relay text messages to *txt channels
-                if source_filter.endswith('txt') and destination_filter.endswith('txt') and source_filter == destination_filter:
+                destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
+                if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
                     destination_channel = client.get_channel(int(destination_channel_id.split('_')[1]))
                     if destination_channel:
                         await relay_text_message(message, destination_channel)
@@ -917,18 +902,6 @@ async def on_reaction_remove(reaction, user):
         logging.error(f"Error in on_reaction_remove: {e}")
 
 @client.event
-async def on_guild_join(guild):
-    """
-    Event triggered when the bot joins a new server.
-    Checks if the server is banned, and leaves if necessary.
-    """
-    if guild.id in banned_servers:
-        logging.warning(f"Joined a banned server: {guild.name} (ID: {guild.id}). Leaving immediately.")
-        await guild.leave()
-    else:
-        logging.info(f"Joined new server: {guild.name} (ID: {guild.id})")
-
-@client.event
 async def on_guild_remove(guild):
     """
     Handles bot removal from a guild, ensuring any associated data or configurations are cleaned up.
@@ -979,13 +952,13 @@ async def setchannel(interaction: discord.Interaction, channel: discord.TextChan
         return
 
     filter = filter.lower()
-    if filter not in ("cpdhtxt", "cpdhlfg", "casualtxt", "casuallfg"):
-        await interaction.response.send_message("Invalid filter. Please specify 'cpdhtxt', 'cpdhlfg', 'casualtxt', or 'casuallfg'.", ephemeral=True)
+    if filter not in ("casual", "cpdh"):
+        await interaction.response.send_message("Invalid filter. Please specify 'casual' or 'cpdh'.", ephemeral=True)
         return
 
     webhook = await channel.create_webhook(name="Cross-Server Bot Webhook")
     WEBHOOK_URLS[f'{interaction.guild.id}_{channel.id}'] = {'url': webhook.url, 'id': webhook.id}
-    CHANNEL_FILTERS[f'{interaction.guild.id}_{channel.id}'] = filter  # Store filter as a string
+    CHANNEL_FILTERS[f'{interaction.guild.id}_{channel.id}'] = filter
     save_webhook_data()
     save_channel_filters()
 
@@ -1064,50 +1037,6 @@ async def updateconfig(interaction: discord.Interaction):
         logging.error(f"Error during /updateconfig: {e}")
         await interaction.followup.send(f"An error occurred while reloading configuration or syncing commands: {e}", ephemeral=True)
 
-@client.tree.command(name="addspelltable", description="Add a SpellTable link (only links starting with 'https://').")
-async def addspelltable(interaction: discord.Interaction, link: str):
-    """
-    Command to allow users to add a SpellTable link. Only links starting with 'https://' are permitted.
-    The link is distributed to all connected channels with the same filter.
-    """
-    if not link.startswith("https://"):
-        await interaction.response.send_message(
-            "Invalid input. Please enter a valid link starting with 'https://'.",
-            ephemeral=True
-        )
-        return
-
-    # Prepare the message to be sent to channels
-    embed = discord.Embed(
-        title="New SpellTable Link Added",
-        description=f"**SpellTable Link:** {link}",
-        color=discord.Color.green()
-    )
-    embed.set_author(name="PDH LFG Bot", icon_url=IMAGE_URL)
-
-    source_channel_id = f'{interaction.guild.id}_{interaction.channel.id}'
-    source_filter = str(CHANNEL_FILTERS.get(source_channel_id, 'none'))
-
-    # Distribute the embed to all connected channels with the same filter
-    sent_to_channels = 0
-    for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
-        destination_filter = str(CHANNEL_FILTERS.get(destination_channel_id, 'none'))
-        if source_filter == destination_filter:
-            destination_channel = client.get_channel(int(destination_channel_id.split('_')[1]))
-            if destination_channel:
-                await destination_channel.send(embed=embed)
-                sent_to_channels += 1
-
-    # Respond to the user with success or failure
-    if sent_to_channels > 0:
-        await interaction.response.send_message(
-            f"SpellTable link successfully distributed to {sent_to_channels} channel(s).", ephemeral=True
-        )
-    else:
-        await interaction.response.send_message(
-            "No connected channels were found with the same filter to distribute the link.", ephemeral=True
-        )
-
 @client.tree.command(name="about", description="Show information about the bot and its commands.")
 async def about(interaction: discord.Interaction):
     """
@@ -1146,7 +1075,6 @@ async def about(interaction: discord.Interaction):
              value=(
                 "**/biglfg** - Create a cross-server LFG request and automatically manage player listings.\n"
                 "**/gamerequest** - Generate a personal TableStream game link.\n"
-                "**/addspelltable** - Add your own custom SpellTable link to an lfg chat.\n"
                 "**/about** - Display details about the bot, commands, and usage."
             ),
             inline=False
@@ -1158,6 +1086,7 @@ async def about(interaction: discord.Interaction):
             value=(
                 "**/setchannel (admin)** - Set a channel for cross-server communication.\n"
                 "**/disconnect (admin)** - Remove a channel from cross-server communication.\n"
+                "**/updateconfig (admin)** - Reload the bot's configuration and resync commands.\n"
                 "**/listadmins (admin)** - Display a list of current bot super admins."
             ),
             inline=False
@@ -1169,8 +1098,6 @@ async def about(interaction: discord.Interaction):
             value=(
                 "**/banuser (restricted)** - Ban a user by User ID # from posting in bot-controlled channels and using commands.\n"
                 "**/unbanuser (restricted)** - Unban a previously banned user.\n"
-                "**/banserver (restricted)** - Ban a server by Server ID # from accessing the bot.\n"
-                "**/unbanserver (restricted)** - Unban a previously banned server.\n"
                 "**/listbans (restricted)** - Display a list of currently banned users along with their details.\n"
             ),
             inline=False
@@ -1248,7 +1175,7 @@ async def biglfg(interaction: discord.Interaction):
         lfg_uuid = str(uuid.uuid4())
 
         source_channel_id = f'{interaction.guild.id}_{interaction.channel.id}'
-        source_filter = str(CHANNEL_FILTERS.get(source_channel_id, 'none'))  # Ensure string type
+        source_filter = CHANNEL_FILTERS.get(source_channel_id, 'none')
 
         # Create the initial embed
         embed = discord.Embed(
@@ -1267,9 +1194,8 @@ async def biglfg(interaction: discord.Interaction):
         # Track the BigLFG embed
         sent_messages = {}
         for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
-            destination_filter = str(CHANNEL_FILTERS.get(destination_channel_id, 'none'))  # Ensure string type
-            # Only send embeds to *lfg channels
-            if source_filter.endswith('lfg') and destination_filter.endswith('lfg') and source_filter == destination_filter:
+            destination_filter = CHANNEL_FILTERS.get(destination_channel_id, 'none')
+            if source_filter == destination_filter or source_filter == 'none' or destination_filter == 'none':
                 destination_channel = client.get_channel(int(destination_channel_id.split('_')[1]))
                 if destination_channel:
                     # Introduce a small delay to prevent rate-limiting
@@ -1287,9 +1213,21 @@ async def biglfg(interaction: discord.Interaction):
             await interaction.followup.send("BigLFG request sent successfully!", ephemeral=True)
         else:
             await interaction.followup.send("Failed to send BigLFG request to any channels.", ephemeral=True)
+
+    except discord.HTTPException as e:
+        if e.status == 429:
+            retry_after = int(e.response.headers.get("Retry-After", 1)) / 1000
+            logging.warning(f"Rate limit hit during BigLFG command! Retrying after {retry_after} seconds.")
+            await asyncio.sleep(retry_after)
+            await biglfg(interaction)
+        else:
+            logging.error(f"Discord API error in BigLFG command: {e}")
     except Exception as e:
         logging.error(f"Error in BigLFG command: {e}")
-        await interaction.followup.send("An error occurred while processing the BigLFG request.", ephemeral=True)
+        try:
+            await interaction.followup.send("An error occurred while processing the BigLFG request.", ephemeral=True)
+        except discord.HTTPException as e:
+            logging.error(f"Error sending error message: {e}")
 
 @client.tree.command(name="banuser", description="Ban a user from interacting with bot-controlled channels. (restricted)")
 async def banuser(interaction: discord.Interaction, user: discord.User, reason: str):
@@ -1390,46 +1328,6 @@ async def listbans(interaction: discord.Interaction):
         ban_list += f"- **{user_name}** (ID: {user_id}) - **Reason:** {data.get('reason', 'No reason provided')}{expiration}\n"
 
     await interaction.response.send_message(ban_list, ephemeral=True)
-
-@client.tree.command(name="banserver", description="Ban a server from using the bot. (restricted)")
-async def banserver(interaction: discord.Interaction, server_id: int):
-    """
-    Bans a server from using the bot, forcing the bot to leave immediately.
-    Restricted to super admins.
-    """
-    if interaction.user.id not in trusted_admins:
-        logging.warning(f"Unauthorized /banserver attempt by {interaction.user.name} (ID: {interaction.user.id})")
-        await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
-        return
-
-    banned_servers.add(server_id)  # Add server ID to the banned list
-    logging.info(f"Server with ID {server_id} has been banned by {interaction.user.name}.")
-
-    # Check if the bot is currently in the banned server
-    guild = discord.utils.get(client.guilds, id=server_id)
-    if guild:
-        await guild.leave()
-        logging.info(f"Bot left the banned server: {guild.name} (ID: {server_id})")
-
-    await interaction.response.send_message(f"Server with ID {server_id} has been banned successfully.", ephemeral=True)
-
-@client.tree.command(name="unbanserver", description="Unban a server from using the bot. (restricted)")
-async def unbanserver(interaction: discord.Interaction, server_id: int):
-    """
-    Unbans a server, allowing it to use the bot again.
-    Restricted to super admins.
-    """
-    if interaction.user.id not in trusted_admins:
-        logging.warning(f"Unauthorized /unbanserver attempt by {interaction.user.name} (ID: {interaction.user.id})")
-        await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
-        return
-
-    if server_id in banned_servers:
-        banned_servers.remove(server_id)
-        logging.info(f"Server with ID {server_id} has been unbanned by {interaction.user.name}.")
-        await interaction.response.send_message(f"Server with ID {server_id} has been unbanned successfully.", ephemeral=True)
-    else:
-        await interaction.response.send_message(f"Server with ID {server_id} is not currently banned.", ephemeral=True)
 
 @client.tree.command(name="listadmins", description="List all trusted administrators.")
 async def listadmins(interaction: discord.Interaction):
