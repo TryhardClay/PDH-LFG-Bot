@@ -13,7 +13,7 @@ class Settings:
     TABLESTREAM_TIMEOUT_SECONDS = int(os.getenv("TABLESTREAM_TIMEOUT_SECONDS", 3600))  # 1 hour
     
     # Discord token
-    DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "your_default_discord_token")
+    DISCORD_BOT_TOKEN = os.getenv("TOKEN")
 
     # Other bot-related configuration
     BOT_PREFIX = os.getenv("BOT_PREFIX", "/")  # Slash commands as default
