@@ -1525,31 +1525,28 @@ async def message_relay_loop():
 # Start the Bot
 # -------------------------------------------------------------------------
 
-# -------------------------------------------------------------------------
-# Start the Bot
-# -------------------------------------------------------------------------
-
 async def start_bot():
     """
     Asynchronous function to start the bot with rate-limit handling.
-    Ensures aiohttp session cleanup on retries and shutdown.
+    Ensures aiohttp session cleanup on shutdown and proper session reinitialization on retries.
     """
-    global global_aiohttp_session
-
     retry_delay = 5  # Start with 5 seconds delay for retries
     max_retries = 5  # Retry up to 5 times
 
     for attempt in range(max_retries):
+        global global_aiohttp_session
+
+        # Ensure any previous session is closed before retrying
+        if global_aiohttp_session is not None and not global_aiohttp_session.closed:
+            logging.info("Closing any previous aiohttp session before retrying...")
+            await global_aiohttp_session.close()
+
+        # Create a fresh aiohttp session for this attempt
+        global_aiohttp_session = aiohttp.ClientSession()
+        logging.info("New aiohttp session initialized.")
+
         try:
-            # Close any lingering session before creating a new one
-            if global_aiohttp_session and not global_aiohttp_session.closed:
-                logging.warning("Cleaning up previous aiohttp session before retrying...")
-                await global_aiohttp_session.close()
-
-            # Create a new aiohttp session
-            global_aiohttp_session = aiohttp.ClientSession()
             logging.info(f"Starting the bot... Attempt {attempt + 1} of {max_retries}")
-
             await client.start(TOKEN)
             return  # Exit on success
 
@@ -1566,19 +1563,13 @@ async def start_bot():
             logging.critical(f"Critical error during bot startup: {e}")
             break
 
-    # Final cleanup after retries exhausted
-    if global_aiohttp_session and not global_aiohttp_session.closed:
-        logging.info("Closing aiohttp session after retries exhausted...")
+    # Final cleanup if retries are exhausted
+    logging.info("Max retries exhausted. Cleaning up aiohttp session.")
+    if global_aiohttp_session:
         await global_aiohttp_session.close()
 
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-
-    # Handle signals to ensure cleanup on shutdown
-    for signal_type in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(signal_type, lambda: asyncio.create_task(global_aiohttp_session.close()))
-
     try:
-        loop.run_until_complete(start_bot())
+        asyncio.run(start_bot())
     except Exception as e:
         logging.critical(f"Unhandled error during bot initialization: {e}")
