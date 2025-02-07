@@ -6,7 +6,7 @@ class GameCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.command(name="biglfg", help="Create a new game using the LFG system.")
+    @commands.command(name="biglfg", help="Create a cross-server LFG request and automatically manage player listings.")
     async def big_lfg(self, ctx, game_format: str, max_players: int = 4):
         request = {
             "id": ctx.message.id,
