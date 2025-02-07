@@ -3,16 +3,16 @@
 import discord
 from discord.ext import commands
 
-@client.tree.command(name="banuser", description="Ban a user from posting in bot-controlled channels and using commands.")
-async def ban_user_command(interaction: discord.Interaction, user: discord.User, reason: str):
+@client.tree.command(name="banuser", description="Ban a user from posting in bot-controlled channels and using commands. (restricted)")
+async def banuser(interaction: discord.Interaction, user: discord.User, reason: str):
     """
-    Ban a user by User ID from posting in bot-controlled channels.
+    Ban a user by User ID # from posting in bot-controlled channels and using commands.
     """
     # Logic for banning user
     await interaction.response.send_message(f"User {user.name} has been banned for: {reason}")
 
-@client.tree.command(name="unbanuser", description="Unban a previously banned user.")
-async def unban_user_command(interaction: discord.Interaction, user: discord.User):
+@client.tree.command(name="unbanuser", description="Unban a previously banned user. (restricted)")
+async def unbanuser(interaction: discord.Interaction, user: discord.User):
     """
     Unban a user who was previously banned.
     """
