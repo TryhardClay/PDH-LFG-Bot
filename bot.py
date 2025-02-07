@@ -9,6 +9,8 @@ import time
 import requests
 import re
 import signal
+from contextvars import ContextVar  # Added for context-based session management
+from contextlib import asynccontextmanager  # For session cleanup
 from enum import Enum
 from discord.ext import commands
 from discord.ext.commands import has_permissions
@@ -38,6 +40,10 @@ active_embeds = {}  # Independently managed
 # Access the token from the environment variable
 TOKEN = os.environ.get('TOKEN')
 
+# Ensure TOKEN is present before proceeding
+if not TOKEN:
+    raise ValueError("Discord bot token is not set. Please check your environment variables.")
+
 # Persistent storage paths
 PERSISTENT_DATA_PATH = '/var/data/webhooks.json'
 CHANNEL_FILTERS_PATH = '/var/data/channel_filters.json'
@@ -49,6 +55,9 @@ IMAGE_URL = "https://raw.githubusercontent.com/TryhardClay/PDH-LFG-Bot/main/PDHB
 
 # Define banned servers (hardcoded initial value)
 banned_servers = {1136731758281363626, 1336809851451609169}
+
+# ContextVar to manage isolated API sessions per task
+api_session: ContextVar[aiohttp.ClientSession | None] = ContextVar("api_session", default=None)
 
 # Define RateLimiter Class
 class RateLimiter:
@@ -123,9 +132,6 @@ def load_webhook_data():
     except json.decoder.JSONDecodeError as e:
         logging.error(f"Error decoding JSON from {PERSISTENT_DATA_PATH}: {e}")
         return {}
-
-# Create a global aiohttp session
-global_aiohttp_session = None
 
 # Load channel filters from persistent storage
 def load_channel_filters():
@@ -222,14 +228,20 @@ client = commands.Bot(command_prefix='/', intents=intents)
 # Webhook Functions
 # -------------------------------------------------------------------------
 
-async def initialize_aiohttp_session():
+@asynccontextmanager
+async def aiohttp_session_manager():
     """
-    Initializes the aiohttp session to be used globally across the bot.
+    Context manager to create and manage aiohttp sessions per task using ContextVar.
+    Ensures proper cleanup after each session use.
     """
-    global global_aiohttp_session
-    if global_aiohttp_session is None:  # Initialize only once
-        global_aiohttp_session = aiohttp.ClientSession()
-        logging.info("Global aiohttp session initialized successfully.")
+    session = aiohttp.ClientSession()
+    try:
+        # Set the context-specific session
+        api_session.set(session)
+        yield session
+    finally:
+        await session.close()
+        logging.info("Aiohttp session closed successfully.")
 
 async def send_webhook_message(webhook_url, content=None, embeds=None, username=None, avatar_url=None):
     """
@@ -246,9 +258,13 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
     if avatar_url:
         data["avatar_url"] = avatar_url
 
+    session = api_session.get()
+    if session is None:
+        logging.error("No aiohttp session available. This indicates improper session management.")
+        return None
+
     try:
-        # Use the global aiohttp session for posting the webhook message
-        async with global_aiohttp_session.post(webhook_url, json=data) as response:
+        async with session.post(webhook_url, json=data) as response:
             if response.status == 204:
                 logging.info(f"Message sent successfully to webhook at {webhook_url}.")
                 return None  # No content to parse
@@ -260,8 +276,11 @@ async def send_webhook_message(webhook_url, content=None, embeds=None, username=
                 logging.error(await response.text())
     except aiohttp.ClientError as e:
         logging.error(f"aiohttp.ClientError: {e}")
+    except discord.HTTPException as e:
+        logging.error(f"discord.HTTPException: {e}")
     except Exception as e:
         logging.error(f"An unexpected error occurred: {e}")
+
     return None
 
 def save_webhook_data():
@@ -303,16 +322,13 @@ def sanitize_room_name(requester_name: str) -> str:
     Ensures the name meets TableStream's requirements.
     """
     base_room_name = f"{requester_name}'s Pauper EDH Room"
-    # Remove problematic characters and trim to 100 characters
-    sanitized_name = re.sub(r"[^a-zA-Z0-9\s]", "", base_room_name).strip()[:100]
-    if len(sanitized_name) > 100:
-        sanitized_name = sanitized_name[:100]
+    sanitized_name = re.sub(r"[^a-zA-Z0-9\\s]", "", base_room_name).strip()[:100]
     return sanitized_name
 
 # Text Message Relay
 async def relay_text_message(source_message, destination_channel):
     """
-    Relay a text message across servers using the Gateway API.
+    Relay a text message across servers using the Gateway API and session-based handling.
     """
     try:
         formatted_content = (
@@ -320,26 +336,28 @@ async def relay_text_message(source_message, destination_channel):
             f"{source_message.content}"
         )
 
-        relayed_message = await destination_channel.send(content=formatted_content)
+        # Context-managed session for message relay
+        async with aiohttp_session_manager():
+            relayed_message = await destination_channel.send(content=formatted_content)
 
-        original_id = str(source_message.id)
-        relay_channel_id = str(destination_channel.id)
-        relay_message_id = str(relayed_message.id)
+            original_id = str(source_message.id)
+            relay_channel_id = str(destination_channel.id)
+            relay_message_id = str(relayed_message.id)
 
-        # Update the message_map with the user ID included
-        if original_id not in message_map:
-            message_map[original_id] = {
-                "original_channel_id": str(source_message.channel.id),
-                "relayed_messages": [],
-                "user_id": str(source_message.author.id)  # Track user ID
-            }
-        message_map[original_id]["relayed_messages"].append({
-            "channel_id": relay_channel_id,
-            "message_id": relay_message_id
-        })
+            # Update the message_map with the user ID included
+            if original_id not in message_map:
+                message_map[original_id] = {
+                    "original_channel_id": str(source_message.channel.id),
+                    "relayed_messages": [],
+                    "user_id": str(source_message.author.id)
+                }
+            message_map[original_id]["relayed_messages"].append({
+                "channel_id": relay_channel_id,
+                "message_id": relay_message_id
+            })
 
-        logging.info(f"Updated message_map: {json.dumps(message_map, indent=4)}")
-        return relayed_message
+            logging.info(f"Updated message_map: {json.dumps(message_map, indent=4)}")
+            return relayed_message
     except Exception as e:
         logging.error(f"Error relaying message to channel {destination_channel.id}: {e}")
         return None
@@ -347,52 +365,15 @@ async def relay_text_message(source_message, destination_channel):
 # Text Message Edit Propagation
 async def propagate_text_edit(before, after):
     """
-    Handle and propagate edits to text messages across servers.
+    Handle and propagate edits to text messages across servers using isolated sessions.
     """
     try:
         logging.info(f"Processing edit for message ID: {before.id}")
-        
-        # Find the original message in message_map
+
         for original_id, data in message_map.items():
             if str(before.id) == original_id:
-                # Edit all relayed messages
-                for relayed in data["relayed_messages"]:
-                    try:
-                        channel = client.get_channel(int(relayed["channel_id"]))
-                        if not channel:
-                            logging.warning(f"Channel {relayed['channel_id']} not accessible. Skipping.")
-                            continue
-
-                        message = await channel.fetch_message(int(relayed["message_id"]))
-                        await message.edit(content=f"{after.author.name} (from {after.guild.name}) said:\n{after.content}")
-                        logging.info(f"Message edit propagated to message ID: {relayed['message_id']} in channel {relayed['channel_id']}")
-                    except Exception as e:
-                        logging.error(f"Error editing message ID {relayed['message_id']}: {e}")
-                return
-        
-        logging.warning(f"Original message {before.id} not found in message_map. Cannot propagate edits.")
-    except Exception as e:
-        logging.error(f"Error in propagate_text_edit: {e}")
-
-# Text Message Reaction Propagation
-async def propagate_reaction_add(reaction, user):
-    """
-    Handle and propagate reactions added to text messages across servers.
-    """
-    try:
-        if user.bot:
-            return  # Ignore bot reactions
-
-        logging.info(f"Reaction {reaction.emoji} added by {user.name} in channel {reaction.message.channel.id}")
-
-        for original_id, data in message_map.items():
-            relayed_messages = data["relayed_messages"]
-            if any(str(reaction.message.id) == relayed["message_id"] for relayed in relayed_messages) or str(reaction.message.id) == original_id:
-                logging.info(f"Match found for message ID: {reaction.message.id} (Original ID: {original_id})")
-
-                # Propagate the reaction to all associated messages
-                for relayed in relayed_messages:
-                    if str(reaction.message.id) != relayed["message_id"]:  # Skip the triggering message
+                async with aiohttp_session_manager():
+                    for relayed in data["relayed_messages"]:
                         try:
                             channel = client.get_channel(int(relayed["channel_id"]))
                             if not channel:
@@ -400,40 +381,26 @@ async def propagate_reaction_add(reaction, user):
                                 continue
 
                             message = await channel.fetch_message(int(relayed["message_id"]))
-                            await message.add_reaction(reaction.emoji)
-                            logging.info(f"Propagated reaction {reaction.emoji} to message ID: {relayed['message_id']} in channel {relayed['channel_id']}")
+                            await message.edit(content=f"{after.author.name} (from {after.guild.name}) said:\n{after.content}")
+                            logging.info(f"Message edit propagated to message ID: {relayed['message_id']} in channel {relayed['channel_id']}")
                         except Exception as e:
-                            logging.error(f"Error propagating reaction to message ID {relayed['message_id']}: {e}")
+                            logging.error(f"Error editing message ID {relayed['message_id']}: {e}")
+                return
 
-                # Add reaction to the original message if not already triggered
-                if str(reaction.message.id) != original_id:
-                    try:
-                        original_channel = client.get_channel(int(data["original_channel_id"]))
-                        if original_channel:
-                            original_message = await original_channel.fetch_message(int(original_id))
-                            await original_message.add_reaction(reaction.emoji)
-                            logging.info(f"Propagated reaction {reaction.emoji} to original message ID: {original_id}")
-                    except discord.NotFound:
-                        logging.warning(f"Original message {original_id} not found. Skipping reaction propagation to it.")
-                    except Exception as e:
-                        logging.error(f"Error propagating reaction to the original message ID {original_id}: {e}")
-
-                return  # Exit after processing the match
-
-        logging.warning(f"Message ID {reaction.message.id} not found in message_map. Cannot propagate reactions.")
+        logging.warning(f"Original message {before.id} not found in message_map. Cannot propagate edits.")
     except Exception as e:
-        logging.error(f"Error in propagate_reaction_add: {e}")
+        logging.error(f"Error in propagate_text_edit: {e}")
 
 # BigLFG Embed Propagation
 async def relay_lfg_embed(embed, source_filter, initiating_player, destination_channel):
     """
     Relay a BigLFG embed to other connected servers using the Gateway API.
-    Manages the embed view and player interactions independently.
     """
     try:
-        sent_message = await destination_channel.send(embed=embed, view=create_lfg_view())
-        logging.info(f"Relayed BigLFG embed to channel {destination_channel.id}")
-        return sent_message
+        async with aiohttp_session_manager():
+            sent_message = await destination_channel.send(embed=embed, view=create_lfg_view())
+            logging.info(f"Relayed BigLFG embed to channel {destination_channel.id}")
+            return sent_message
     except Exception as e:
         logging.error(f"Error relaying BigLFG embed to channel {destination_channel.id}: {e}")
         return None
@@ -452,9 +419,9 @@ async def update_embeds(lfg_uuid):
         players = data["players"]
         is_game_ready = len(players) == 4
 
-        # Generate the Table Stream link only once and reuse it
+        # Generate the TableStream link only once and reuse it
         if is_game_ready and "game_link" not in data:
-            logging.info("Generating Table Stream link for the first time...")
+            logging.info("Generating TableStream link for the first time...")
             game_data = {"id": str(uuid.uuid4())}
             game_format = GameFormat.PAUPER_EDH
             player_count = 4
@@ -493,10 +460,10 @@ async def update_embeds(lfg_uuid):
                 )
 
                 if is_game_ready:
-                    # Add the Table Stream link to the embed
+                    # Add the TableStream link to the embed
                     embed.add_field(
                         name="Table Stream Game:",
-                        value=f"[Click this link to join your Table Stream game.]({data['game_link']})",
+                        value=f"[Click this link to join your TableStream game.]({data['game_link']})",
                         inline=False
                     )
 
@@ -687,18 +654,23 @@ async def generate_tablestream_link(game_data: dict, game_format: GameFormat, pl
             "initialScheduleTTLInSeconds": 3600  # 1 hour
         }
 
-        # Use the global aiohttp session
-        async with global_aiohttp_session.post(api_url, json=payload, headers=headers) as response:
-            if response.status == 201:  # HTTP Created
-                data = await response.json()
-                room_url = data.get("room", {}).get("roomUrl")
-                password = data.get("room", {}).get("password")
-                logging.info(f"Successfully generated TableStream link: {room_url}")
-                return room_url, password
-            else:
-                error = await response.json()
-                logging.error(f"Failed to generate TableStream link. Status: {response.status}, Error: {error}")
+        async with aiohttp_session_manager():
+            session = api_session.get()
+            if session is None:
+                logging.error("No active aiohttp session available for the API request.")
                 return None, None
+
+            async with session.post(api_url, json=payload, headers=headers) as response:
+                if response.status == 201:  # HTTP Created
+                    data = await response.json()
+                    room_url = data.get("room", {}).get("roomUrl")
+                    password = data.get("room", {}).get("password")
+                    logging.info(f"Successfully generated TableStream link: {room_url}")
+                    return room_url, password
+                else:
+                    error = await response.json()
+                    logging.error(f"Failed to generate TableStream link. Status: {response.status}, Error: {error}")
+                    return None, None
     except Exception as e:
         logging.error(f"Error while generating TableStream link: {e}")
         return None, None
@@ -710,13 +682,10 @@ async def generate_tablestream_link(game_data: dict, game_format: GameFormat, pl
 @client.event
 async def on_ready():
     """
-    Optimized event triggered when the bot is ready. Stagger command syncing to avoid rate limits.
-    Handles rate limits using exponential backoff.
+    Event triggered when the bot is ready. Reloads configuration files,
+    logs guild connections, and initializes the bot state.
     """
     logging.info(f"Bot is ready and logged in as {client.user}")
-
-    # Initialize aiohttp session
-    await initialize_aiohttp_session()
 
     # Reload configurations from persistent storage
     global WEBHOOK_URLS, CHANNEL_FILTERS
@@ -724,28 +693,17 @@ async def on_ready():
     CHANNEL_FILTERS = load_channel_filters()
     logging.info("Configurations reloaded successfully.")
 
-    batch_size = 10  # Sync commands in batches of 10 guilds
-    delay_between_batches = 2  # Delay between batches
-    retry_delay = 5  # Initial retry delay for rate limits
+    # Delay to let the bot stabilize before syncing commands
+    await asyncio.sleep(120)  # 2-minute delay to prevent API overload
+    logging.info("Starting delayed command sync...")
 
-    try:
-        sync_tasks = []
-        for i, guild in enumerate(client.guilds):
-            sync_tasks.append(client.tree.sync(guild=guild))
-
-            # Process batches
-            if len(sync_tasks) == batch_size:
-                await execute_batch_with_retries(sync_tasks, retry_delay)
-                sync_tasks = []  # Clear batch
-                await asyncio.sleep(delay_between_batches)  # Delay between batches
-
-        # Sync any remaining tasks
-        if sync_tasks:
-            await execute_batch_with_retries(sync_tasks, retry_delay)
-
-        logging.info("All commands synced successfully.")
-    except Exception as e:
-        logging.error(f"Error syncing commands: {e}")
+    # Sync commands using a session-managed approach
+    async with aiohttp_session_manager():
+        try:
+            await client.tree.sync()
+            logging.info("Commands have been synced successfully.")
+        except Exception as e:
+            logging.error(f"Error syncing commands: {e}")
 
     # Log connected guilds and check for bans
     for guild in client.guilds:
@@ -756,24 +714,6 @@ async def on_ready():
             logging.info(f"Connected to server: {guild.name} (ID: {guild.id})")
 
     logging.info("Bot is ready to receive updates and relay messages.")
-
-
-async def execute_batch_with_retries(tasks, retry_delay):
-    """
-    Execute a batch of tasks and handle rate limits with exponential backoff.
-    """
-    while tasks:
-        try:
-            await asyncio.gather(*tasks)  # Attempt to execute tasks concurrently
-            return  # Exit on success
-        except discord.HTTPException as e:
-            if e.status == 429:  # Rate limit error
-                logging.warning(f"Rate limit hit during command sync. Retrying after {retry_delay} seconds.")
-                await asyncio.sleep(retry_delay)
-                retry_delay = min(retry_delay * 2, 60)  # Exponential backoff, up to 60 seconds
-            else:
-                logging.error(f"Unexpected error during command sync: {e}")
-                break
 
 @client.event
 async def on_message(message):
@@ -792,7 +732,7 @@ async def on_message(message):
     if user_id in banned_users:
         logging.warning(f"Blocked message from banned user {message.author.name} (ID: {user_id}) in {message.channel.name}")
 
-        # Delete the message and inform the user (ephemeral error message)
+        # Delete the message and inform the user
         try:
             await message.delete()
             await message.author.send(
@@ -815,10 +755,11 @@ async def on_message(message):
         await message.channel.send(f"Text messages are not allowed in this channel. Please use slash commands.", delete_after=5)
         return
 
+    # Relay message if channel is connected
     if source_channel_id in WEBHOOK_URLS:
         for destination_channel_id, webhook_data in WEBHOOK_URLS.items():
             if source_channel_id != destination_channel_id:
-                destination_filter = str(CHANNEL_FILTERS.get(destination_channel_id, 'none'))  # Ensure string type
+                destination_filter = str(CHANNEL_FILTERS.get(destination_channel_id, 'none'))
                 # Only relay text messages to *txt channels
                 if source_filter.endswith('txt') and destination_filter.endswith('txt') and source_filter == destination_filter:
                     destination_channel = client.get_channel(int(destination_channel_id.split('_')[1]))
@@ -856,7 +797,7 @@ async def on_message_delete(message):
                         logging.error(f"Error deleting message ID {relayed['message_id']}: {e}")
                 del message_map[original_id]  # Remove from map after deletion
                 return
-        
+
         logging.warning(f"Original message {message.id} not found in message_map. Cannot propagate deletion.")
     except Exception as e:
         logging.error(f"Error in on_message_delete: {e}")
@@ -878,7 +819,7 @@ async def on_reaction_add(reaction, user):
             if any(str(reaction.message.id) == relayed["message_id"] for relayed in relayed_messages) or str(reaction.message.id) == original_id:
                 logging.info(f"Match found for message ID: {reaction.message.id} (Original ID: {original_id})")
 
-                # Propagate the reaction to all relayed messages
+                # Propagate the reaction to all associated messages
                 for relayed in relayed_messages:
                     if str(reaction.message.id) != relayed["message_id"]:  # Skip the triggering message
                         try:
@@ -983,16 +924,6 @@ async def on_guild_remove(guild):
     logging.info(f"Bot removed from server: {guild.name} (ID: {guild.id})")
     # Further cleanup logic (if required) can be added here
 
-@client.event
-@client.event
-async def on_close():
-    """
-    Handles bot shutdown and closes the aiohttp session.
-    """
-    if global_aiohttp_session:
-        logging.info("Closing aiohttp session...")
-        await global_aiohttp_session.close()
-
 # -------------------------------------------------------------------------
 # Role Management
 # -------------------------------------------------------------------------
@@ -1015,9 +946,11 @@ async def manage_role(guild):
             await guild.me.add_roles(role)
             logging.info(f"Added role '{role.name}' to the bot in server '{guild.name}'")
     except discord.Forbidden:
-        logging.warning(f"Missing permissions to manage roles in server '{guild.name}'")
+        logging.warning(f"Missing permissions to manage roles in server '{guild.name}'. Ensure the bot has sufficient privileges.")
     except discord.HTTPException as e:
-        logging.error(f"Error managing role in server '{guild.name}': {e}")
+        logging.error(f"HTTP error while managing role in server '{guild.name}': {e}")
+    except Exception as e:
+        logging.error(f"Unexpected error while managing role in server '{guild.name}': {e}")
 
 # -------------------------------------------------------------------------
 # Commands
@@ -1517,7 +1450,19 @@ async def message_relay_loop():
         try:
             # Introduce a small delay to prevent excessive API calls
             await asyncio.sleep(RATE_LIMIT_DELAY)
+
             # Placeholder for additional logic if message queuing or advanced relay is added
+            # Future-proofing: Example API call inside context-managed session if needed
+            async with aiohttp_session_manager():
+                session = api_session.get()
+                if session is None:
+                    logging.error("No active session available in message relay loop.")
+                    continue
+
+                # Placeholder for potential future API calls using session
+                # Example:
+                # await session.get('https://api.example.com/endpoint')
+
         except Exception as e:
             logging.error(f"Error in message relay loop: {e}")
 
@@ -1527,46 +1472,34 @@ async def message_relay_loop():
 
 async def start_bot():
     """
-    Asynchronous function to start the bot with rate-limit handling.
-    Ensures aiohttp session cleanup on shutdown and proper session reinitialization on retries.
+    Asynchronous function to start the bot with rate-limit handling and session cleanup.
+    Implements exponential backoff for retrying on errors.
     """
-    retry_delay = 30  # Start with 30 seconds delay for retries
-    max_retries = 5  # Retry up to 5 times
+    retry_delay = 5  # Initial retry delay
+    max_retries = 10  # Max retries before giving up
 
     for attempt in range(max_retries):
-        global global_aiohttp_session
-
-        # Ensure any previous session is closed before retrying
-        if global_aiohttp_session is not None and not global_aiohttp_session.closed:
-            logging.info("Closing any previous aiohttp session before retrying...")
-            await global_aiohttp_session.close()
-
-        # Create a fresh aiohttp session for this attempt
-        global_aiohttp_session = aiohttp.ClientSession()
-        logging.info("New aiohttp session initialized.")
-
         try:
             logging.info(f"Starting the bot... Attempt {attempt + 1} of {max_retries}")
             await client.start(TOKEN)
-            return  # Exit on success
+            return  # Exit if successful
 
         except discord.HTTPException as e:
-            if e.status == 429:  # Rate limit error
-                retry_after = retry_delay * (2 ** attempt)  # Exponential backoff
-                logging.critical(f"Rate limit hit during bot startup. Retrying after {retry_after} seconds.")
+            if e.status == 429:
+                retry_after = int(e.response.headers.get("Retry-After", 5))
+                logging.warning(f"Rate limit hit during bot start. Retrying after {retry_after} seconds.")
                 await asyncio.sleep(retry_after)
             else:
-                logging.critical(f"Unexpected error during bot startup: {e}")
-                break  # Exit on non-rate-limit errors
+                logging.critical(f"Unexpected Discord API error during startup: {e}")
+                retry_delay = min(retry_delay * 2, 60)  # Exponential backoff with max limit
+                await asyncio.sleep(retry_delay)
 
         except Exception as e:
             logging.critical(f"Critical error during bot startup: {e}")
-            break
+            retry_delay = min(retry_delay * 2, 60)  # Exponential backoff for generic errors
+            await asyncio.sleep(retry_delay)
 
-    # Final cleanup if retries are exhausted
-    logging.info("Max retries exhausted. Cleaning up aiohttp session.")
-    if global_aiohttp_session:
-        await global_aiohttp_session.close()
+    logging.error("Max retries exceeded. Could not start the bot.")
 
 if __name__ == "__main__":
     try:
