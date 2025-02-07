@@ -1525,42 +1525,51 @@ async def message_relay_loop():
 # Start the Bot
 # -------------------------------------------------------------------------
 
+# -------------------------------------------------------------------------
+# Start the Bot
+# -------------------------------------------------------------------------
+
 async def start_bot():
     """
     Asynchronous function to start the bot with rate-limit handling.
-    Ensures aiohttp session cleanup on shutdown.
+    Ensures aiohttp session cleanup on retries and shutdown.
     """
     global global_aiohttp_session
-
-    # Initialize aiohttp session before entering the retry loop
-    global_aiohttp_session = aiohttp.ClientSession()
 
     retry_delay = 5  # Start with 5 seconds delay for retries
     max_retries = 5  # Retry up to 5 times
 
-    try:
-        for attempt in range(max_retries):
-            try:
-                logging.info(f"Starting the bot... Attempt {attempt + 1} of {max_retries}")
-                await client.start(TOKEN)
-                return  # Exit on success
-            except discord.HTTPException as e:
-                if e.status == 429:  # Rate limit error
-                    retry_after = retry_delay * (2 ** attempt)  # Exponential backoff
-                    logging.critical(f"Rate limit hit during bot startup. Retrying after {retry_after} seconds.")
-                    await asyncio.sleep(retry_after)
-                else:
-                    logging.critical(f"Unexpected error during bot startup: {e}")
-                    break  # Exit on non-rate-limit errors
-            except Exception as e:
-                logging.critical(f"Critical error during bot startup: {e}")
-                break
+    for attempt in range(max_retries):
+        try:
+            # Close any lingering session before creating a new one
+            if global_aiohttp_session and not global_aiohttp_session.closed:
+                logging.warning("Cleaning up previous aiohttp session before retrying...")
+                await global_aiohttp_session.close()
 
-    finally:
-        # Always clean up the aiohttp session when done
-        if global_aiohttp_session:
-            logging.info("Closing aiohttp session...")
-            await global_aiohttp_session.close()
+            # Create a new aiohttp session
+            global_aiohttp_session = aiohttp.ClientSession()
+            logging.info(f"Starting the bot... Attempt {attempt + 1} of {max_retries}")
+
+            await client.start(TOKEN)
+            return  # Exit on success
+
+        except discord.HTTPException as e:
+            if e.status == 429:  # Rate limit error
+                retry_after = retry_delay * (2 ** attempt)  # Exponential backoff
+                logging.critical(f"Rate limit hit during bot startup. Retrying after {retry_after} seconds.")
+                await asyncio.sleep(retry_after)
+            else:
+                logging.critical(f"Unexpected error during bot startup: {e}")
+                break  # Exit on non-rate-limit errors
+
+        except Exception as e:
+            logging.critical(f"Critical error during bot startup: {e}")
+            break
+
+    # Final cleanup after retries exhausted
+    if global_aiohttp_session and not global_aiohttp_session.closed:
+        logging.info("Closing aiohttp session after retries exhausted...")
+        await global_aiohttp_session.close()
 
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()
@@ -1573,4 +1582,3 @@ if __name__ == "__main__":
         loop.run_until_complete(start_bot())
     except Exception as e:
         logging.critical(f"Unhandled error during bot initialization: {e}")
-
