@@ -6,7 +6,7 @@ class GameRequestCommand(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.command(name="gamerequest", help="Test the connection to the TableStream API.")
+    @commands.command(name="gamerequest", help="Generate a personal TableStream game link.")
     async def gamerequest(self, ctx):
         # Simulate a test game payload
         test_game = {
