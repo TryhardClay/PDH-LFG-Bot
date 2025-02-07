@@ -718,31 +718,33 @@ async def on_ready():
     CHANNEL_FILTERS = load_channel_filters()
     logging.info("Configurations reloaded successfully.")
 
-    retry_delay = 5  # Initial retry delay (in seconds)
-    max_retries = 5  # Maximum retries per guild sync
+    batch_size = 3  # Sync 5 servers at a time
+    retry_delay = 5  # Initial retry delay in seconds
 
-    for guild in client.guilds:
-        logging.info(f"Attempting to sync commands for guild: {guild.name} (ID: {guild.id})")
+    try:
+        guild_batches = [client.guilds[i:i + batch_size] for i in range(0, len(client.guilds), batch_size)]
 
-        # Sequential sync with retry and backoff
-        for attempt in range(max_retries):
+        for batch_num, guild_batch in enumerate(guild_batches):
+            logging.info(f"Syncing commands for batch {batch_num + 1}/{len(guild_batches)}")
+
             try:
-                await client.tree.sync(guild=guild)
-                logging.info(f"Commands synced successfully for {guild.name} (ID: {guild.id})")
-                break  # Exit retry loop on success
+                # Sync commands for the batch
+                await asyncio.gather(*[client.tree.sync(guild=guild) for guild in guild_batch])
+                logging.info(f"Commands synced successfully for batch {batch_num + 1}")
+                await asyncio.sleep(2)  # Small delay between batches to avoid spikes
+
             except discord.HTTPException as e:
-                if e.status == 429:
-                    logging.warning(f"Rate limit hit while syncing {guild.name}. Retrying in {retry_delay} seconds.")
+                if e.status == 429:  # Handle rate limits
+                    logging.warning(f"Rate limit hit during batch {batch_num + 1}. Retrying after {retry_delay} seconds.")
                     await asyncio.sleep(retry_delay)
                     retry_delay = min(retry_delay * 2, 60)  # Exponential backoff up to 60 seconds
                 else:
-                    logging.error(f"Failed to sync commands for {guild.name} (ID: {guild.id}): {e}")
-                    break  # Exit on non-rate-limit errors
+                    logging.error(f"Error syncing commands for batch {batch_num + 1}: {e}")
 
-        # Small delay between each guild sync to avoid spikes
-        await asyncio.sleep(2)
+        logging.info("All guild-specific commands synced in batches.")
 
-    logging.info("All guild-specific commands synced sequentially.")
+    except Exception as e:
+        logging.error(f"Unexpected error during command syncing: {e}")
 
 @client.event
 async def on_message(message):
