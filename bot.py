@@ -8,7 +8,6 @@ import uuid
 import time
 import requests
 import re
-import signal
 from enum import Enum
 from discord.ext import commands
 from discord.ext.commands import has_permissions
@@ -28,7 +27,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 relayed_text_messages = TTLCache(maxsize=10000, ttl=24 * 60 * 60)  # Max size, TTL, and 24-hour expiration
 
 # Set up global rate limit handling
-RATE_LIMIT_DELAY = 1  # Default delay between API calls to prevent spamming
+RATE_LIMIT_DELAY = 0.5  # Default delay between API calls to prevent spamming
 
 message_map = {}
 
@@ -63,19 +62,9 @@ class RateLimiter:
         self.requests = asyncio.Queue()
         self.lock = asyncio.Lock()
 
-    async def acquire(self, retry_after: float = None):
-        """
-        Dynamically acquire a rate limit token.
-        If retry_after is provided, wait for that duration.
-        """
+    async def acquire(self):
         async with self.lock:
-            if retry_after:
-                logging.warning(f"Delaying for {retry_after:.2f} seconds due to Retry-After header.")
-                await asyncio.sleep(retry_after)
-
             now = datetime.now()
-
-            # Remove expired requests from the queue
             while not self.requests.empty():
                 if (now - self.requests.queue[0]).total_seconds() > self.period:
                     await self.requests.get()
@@ -91,36 +80,28 @@ class RateLimiter:
 
 # Define PauseManager Class
 class PauseManager:
-    def __init__(self, violation_threshold: int, pause_duration: int, grace_period: int = 300):
+    def __init__(self, violation_threshold: int, pause_duration: int):
         """
         Initialize the pause manager.
         :param violation_threshold: Number of rate limit violations to trigger a pause.
         :param pause_duration: Duration (in seconds) of the pause.
-        :param grace_period: Time period to reset violations if no new violations occur.
         """
         self.violation_threshold = violation_threshold
         self.pause_duration = pause_duration
-        self.grace_period = grace_period  # Extend reset timing for more robust checks
         self.violations = 0
         self.last_violation_time = datetime.now()
 
-    async def handle_violation(self, retry_after: float = None):
+    async def handle_violation(self):
         now = datetime.now()
-
-        # Reset violations if enough time has passed
-        if (now - self.last_violation_time).total_seconds() > self.grace_period:
-            self.violations = 0
-
+        if (now - self.last_violation_time).total_seconds() > 60:
+            self.violations = 0  # Reset violations after 1 minute
         self.violations += 1
         self.last_violation_time = now
 
         if self.violations >= self.violation_threshold:
             logging.critical(f"Too many rate limit violations! Pausing for {self.pause_duration} seconds.")
             await asyncio.sleep(self.pause_duration)
-            self.violations = 0  # Reset after pause
-        elif retry_after:
-            logging.warning(f"Rate limit violation detected. Waiting {retry_after} seconds.")
-            await asyncio.sleep(retry_after)
+            self.violations = 0
 
 # Initialize RateLimiter and PauseManager
 rate_limiter = RateLimiter(max_requests=50, period=1)  # Adjust to Discord limits
@@ -141,9 +122,6 @@ def load_webhook_data():
     except json.decoder.JSONDecodeError as e:
         logging.error(f"Error decoding JSON from {PERSISTENT_DATA_PATH}: {e}")
         return {}
-
-# Create a global aiohttp session
-global_aiohttp_session = None
 
 # Load channel filters from persistent storage
 def load_channel_filters():
@@ -240,75 +218,41 @@ client = commands.Bot(command_prefix='/', intents=intents)
 # Webhook Functions
 # -------------------------------------------------------------------------
 
-async def initialize_aiohttp_session():
-    """
-    Initializes the aiohttp session to be used globally across the bot.
-    """
-    global global_aiohttp_session
-    if global_aiohttp_session is None:  # Initialize only once
-        global_aiohttp_session = aiohttp.ClientSession()
-        logging.info("Global aiohttp session initialized successfully.")
-
-async def safe_discord_request(session, method, url, rate_limiter, pause_manager, **kwargs):
-    while True:
-        async with session.request(method, url, **kwargs) as response:
-            if response.status == 429:
-                retry_after = float(response.headers.get("Retry-After", 1))
-                rate_limit_remaining = int(response.headers.get("X-RateLimit-Remaining", 0))
-
-                # Pass information to the rate limiter and pause manager
-                await rate_limiter.acquire(rate_limit_remaining, retry_after)
-                await pause_manager.handle_violation(retry_after)
-                continue  # Retry the request after handling
-
-            elif response.status >= 500:  # Handle server errors
-                logging.error(f"Server error {response.status}. Retrying...")
-                await asyncio.sleep(2)  # Simple retry delay for server errors
-                continue
-
-            return await response.json()  # Successfully handle response
-
 async def send_webhook_message(webhook_url, content=None, embeds=None, username=None, avatar_url=None):
     """
     Send a message using a webhook to a specific channel.
-    Handles rate limits using RateLimiter.
+    Handles content, embeds, username attribution, and avatar.
     """
-    data = {}
-    if content:
-        data["content"] = content
-    if embeds:
-        data["embeds"] = embeds
-    if username:
-        data["username"] = username
-    if avatar_url:
-        data["avatar_url"] = avatar_url
+    async with aiohttp.ClientSession() as session:
+        data = {}
+        if content:
+            data["content"] = content
+        if embeds:
+            data["embeds"] = embeds
+        if username:
+            data["username"] = username
+        if avatar_url:
+            data["avatar_url"] = avatar_url
 
-    while True:
         try:
-            # Acquire a rate limit token before making the request
-            await rate_limiter.acquire()
-
-            async with global_aiohttp_session.post(webhook_url, json=data) as response:
-                if response.status == 429:
-                    retry_after = float(response.headers.get("Retry-After", 1))
-                    logging.warning(f"429 Rate Limit hit. Retrying after {retry_after} seconds.")
-                    
-                    # Use the rate limiter to pause before retrying
-                    await rate_limiter.acquire(retry_after=retry_after)
-                    continue  # Retry the request
-
-                if response.status in (200, 204):
-                    logging.info(f"Message sent successfully to {webhook_url}.")
-                    return await response.json() if response.status != 204 else None
-
-                logging.error(f"Failed to send message. Status: {response.status}, Error: {await response.text()}")
-
+            async with session.post(webhook_url, json=data) as response:
+                if response.status == 204:
+                    logging.info(f"Message sent successfully to webhook at {webhook_url}.")
+                    return None  # No content to parse
+                elif response.status >= 200 and response.status < 300:
+                    logging.info(f"Message sent to webhook at {webhook_url} with response: {response.status}")
+                    return await response.json()  # Parse response only for non-204 success codes
+                else:
+                    logging.error(f"Failed to send message. Status code: {response.status}")
+                    logging.error(await response.text())
         except aiohttp.ClientError as e:
             logging.error(f"aiohttp.ClientError: {e}")
-            await asyncio.sleep(2)
+        except discord.HTTPException as e:
+            logging.error(f"discord.HTTPException: {e}")
         except Exception as e:
-            logging.error(f"Unexpected error: {e}")
-            await asyncio.sleep(2)
+            logging.error(f"An unexpected error occurred: {e}")
+
+    return None
 
 def save_webhook_data():
     """
@@ -733,18 +677,18 @@ async def generate_tablestream_link(game_data: dict, game_format: GameFormat, pl
             "initialScheduleTTLInSeconds": 3600  # 1 hour
         }
 
-        # Use the global aiohttp session
-        async with global_aiohttp_session.post(api_url, json=payload, headers=headers) as response:
-            if response.status == 201:  # HTTP Created
-                data = await response.json()
-                room_url = data.get("room", {}).get("roomUrl")
-                password = data.get("room", {}).get("password")
-                logging.info(f"Successfully generated TableStream link: {room_url}")
-                return room_url, password
-            else:
-                error = await response.json()
-                logging.error(f"Failed to generate TableStream link. Status: {response.status}, Error: {error}")
-                return None, None
+        async with aiohttp.ClientSession() as session:
+            async with session.post(api_url, json=payload, headers=headers) as response:
+                if response.status == 201:  # HTTP Created
+                    data = await response.json()
+                    room_url = data.get("room", {}).get("roomUrl")
+                    password = data.get("room", {}).get("password")
+                    logging.info(f"Successfully generated TableStream link: {room_url}")
+                    return room_url, password
+                else:
+                    error = await response.json()
+                    logging.error(f"Failed to generate TableStream link. Status: {response.status}, Error: {error}")
+                    return None, None
     except Exception as e:
         logging.error(f"Error while generating TableStream link: {e}")
         return None, None
@@ -753,6 +697,7 @@ async def generate_tablestream_link(game_data: dict, game_format: GameFormat, pl
 # Event Handlers
 # -------------------------------------------------------------------------
 
+@client.event
 @client.event
 async def on_ready():
     logging.info(f"Bot is ready and logged in as {client.user}")
@@ -791,23 +736,6 @@ async def on_ready():
         await asyncio.sleep(2)
 
     logging.info("All guild-specific commands synced sequentially.")
-
-async def execute_batch_with_retries(tasks, retry_delay):
-    """
-    Execute a batch of tasks and handle rate limits with exponential backoff.
-    """
-    while tasks:
-        try:
-            await asyncio.gather(*tasks)  # Attempt to execute tasks concurrently
-            return  # Exit on success
-        except discord.HTTPException as e:
-            if e.status == 429:  # Rate limit error
-                logging.warning(f"Rate limit hit during command sync. Retrying after {retry_delay} seconds.")
-                await asyncio.sleep(retry_delay)
-                retry_delay = min(retry_delay * 2, 60)  # Exponential backoff, up to 60 seconds
-            else:
-                logging.error(f"Unexpected error during command sync: {e}")
-                break
 
 @client.event
 async def on_message(message):
@@ -1016,16 +944,6 @@ async def on_guild_remove(guild):
     """
     logging.info(f"Bot removed from server: {guild.name} (ID: {guild.id})")
     # Further cleanup logic (if required) can be added here
-
-@client.event
-@client.event
-async def on_close():
-    """
-    Handles bot shutdown and closes the aiohttp session.
-    """
-    if global_aiohttp_session:
-        logging.info("Closing aiohttp session...")
-        await global_aiohttp_session.close()
 
 # -------------------------------------------------------------------------
 # Role Management
@@ -1562,45 +1480,24 @@ async def message_relay_loop():
 async def start_bot():
     """
     Asynchronous function to start the bot with rate-limit handling.
-    Ensures aiohttp session cleanup on shutdown and proper session reinitialization on retries.
     """
-    retry_delay = 30  # Start with 30 seconds delay for retries
-    max_retries = 5  # Retry up to 5 times
-
-    for attempt in range(max_retries):
-        global global_aiohttp_session
-
-        # Ensure any previous session is closed before retrying
-        if global_aiohttp_session is not None and not global_aiohttp_session.closed:
-            logging.info("Closing any previous aiohttp session before retrying...")
-            await global_aiohttp_session.close()
-
-        # Create a fresh aiohttp session for this attempt
-        global_aiohttp_session = aiohttp.ClientSession()
-        logging.info("New aiohttp session initialized.")
-
+    while True:
         try:
-            logging.info(f"Starting the bot... Attempt {attempt + 1} of {max_retries}")
+            logging.info("Starting the bot...")
             await client.start(TOKEN)
-            return  # Exit on success
-
+            break  # Exit the loop if successful
         except discord.HTTPException as e:
-            if e.status == 429:  # Rate limit error
-                retry_after = retry_delay * (2 ** attempt)  # Exponential backoff
-                logging.critical(f"Rate limit hit during bot startup. Retrying after {retry_after} seconds.")
+            if e.status == 429:
+                retry_after = int(e.response.headers.get("Retry-After", 1)) / 1000
+                logging.critical(f"Rate limit hit during bot start! Retrying after {retry_after} seconds.")
                 await asyncio.sleep(retry_after)
             else:
-                logging.critical(f"Unexpected error during bot startup: {e}")
-                break  # Exit on non-rate-limit errors
-
+                logging.critical(f"Discord API error while starting the bot: {e}")
+                break
         except Exception as e:
-            logging.critical(f"Critical error during bot startup: {e}")
+            logging.critical(f"Critical error while starting the bot: {e}")
             break
 
-    # Final cleanup if retries are exhausted
-    logging.info("Max retries exhausted. Cleaning up aiohttp session.")
-    if global_aiohttp_session:
-        await global_aiohttp_session.close()
 
 if __name__ == "__main__":
     try:
