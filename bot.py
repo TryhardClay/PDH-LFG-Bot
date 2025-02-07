@@ -218,6 +218,12 @@ client = commands.Bot(command_prefix='/', intents=intents)
 # Webhook Functions
 # -------------------------------------------------------------------------
 
+async def initialize_aiohttp_session():
+    global global_aiohttp_session
+    if global_aiohttp_session is None:
+        global_aiohttp_session = aiohttp.ClientSession()
+        logging.info("Global aiohttp session initialized successfully.")
+
 async def send_webhook_message(webhook_url, content=None, embeds=None, username=None, avatar_url=None):
     """
     Send a message using a webhook to a specific channel.
