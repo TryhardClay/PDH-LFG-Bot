@@ -23,7 +23,11 @@ async def load_cogs():
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
-    await load_cogs()  # Load cogs when the bot is ready
+    try:
+        await bot.tree.sync()  # Sync commands with Discord
+        print("Commands synced successfully.")
+    except Exception as e:
+        print(f"Error syncing commands: {e}")
 
 @bot.event
 async def on_command_error(ctx, error):
