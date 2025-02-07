@@ -706,7 +706,6 @@ async def generate_tablestream_link(game_data: dict, game_format: GameFormat, pl
 # -------------------------------------------------------------------------
 
 @client.event
-@client.event
 async def on_ready():
     logging.info(f"Bot is ready and logged in as {client.user}")
 
