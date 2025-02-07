@@ -1525,9 +1525,31 @@ async def message_relay_loop():
 # Start the Bot
 # -------------------------------------------------------------------------
 
+async def start_bot_with_cooldown():
+    """
+    Asynchronous function to start the bot with proper rate limit handling and cooldown on failures.
+    """
+    retry_delay = 10  # Start with a 10-second retry delay
+    max_retries = 5  # Maximum of 5 retry attempts
+
+    for attempt in range(max_retries):
+        try:
+            logging.info(f"Starting the bot... Attempt {attempt + 1} of {max_retries}")
+            await client.start(TOKEN)
+            return  # Exit on success
+        except discord.errors.RateLimited as e:
+            retry_after = retry_delay * (2 ** attempt)  # Exponential backoff (10, 20, 40... seconds)
+            logging.warning(f"Rate limit hit during startup. Retrying in {retry_after} seconds.")
+            await asyncio.sleep(retry_after)
+        except Exception as e:
+            logging.error(f"Unhandled error during bot startup: {e}")
+            break  # Prevent infinite retry loops
+
+    logging.critical("Max retries exhausted. Please check Discord API or Cloudflare configurations.")
+
+
 if __name__ == "__main__":
     try:
-        # client.run() automatically handles cleanup, retries, and session management.
-        client.run(TOKEN)
+        asyncio.run(start_bot_with_cooldown())
     except Exception as e:
         logging.critical(f"Unhandled error during bot initialization: {e}")
