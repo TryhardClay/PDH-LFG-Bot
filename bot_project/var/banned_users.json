@@ -1,3 +1,6 @@
 {
-    "banned_users": []
+    "banned_users": [],
+    "banned_servers": [
+        1136731758281363626,  // Hardcoded banned server (previously specified)
+    ]
 }
