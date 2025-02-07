@@ -31,6 +31,8 @@ RATE_LIMIT_DELAY = 0.5  # Default delay between API calls to prevent spamming
 
 message_map = {}
 
+global_aiohttp_session = None  # Initialize the global session
+
 # BigLFG Embed Tracking
 active_embeds = {}  # Independently managed
 
