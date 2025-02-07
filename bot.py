@@ -722,19 +722,17 @@ async def on_ready():
     retry_delay = 5  # Initial retry delay in seconds
 
     try:
-        # Step 1: Clear all previous commands globally
-        logging.info("Clearing all previous commands globally...")
-        await client.tree.clear_commands(guild=None)  # Clear all commands globally
-        logging.info("All previous commands cleared.")
-
-        # Step 2: Start syncing commands in batches
         guild_batches = [client.guilds[i:i + batch_size] for i in range(0, len(client.guilds), batch_size)]
 
         for batch_num, guild_batch in enumerate(guild_batches):
-            logging.info(f"Syncing commands for batch {batch_num + 1}/{len(guild_batches)}")
+            logging.info(f"Clearing and syncing commands for batch {batch_num + 1}/{len(guild_batches)}")
 
             try:
-                # Sync commands for the batch
+                # Clear commands and sync for each guild in the batch
+                for guild in guild_batch:
+                    logging.info(f"Clearing commands for guild: {guild.name} (ID: {guild.id})")
+                    await client.tree.clear_commands(guild=guild)  # Clear old commands per guild
+
                 await asyncio.gather(*[client.tree.sync(guild=guild) for guild in guild_batch])
                 logging.info(f"Commands synced successfully for batch {batch_num + 1}")
                 await asyncio.sleep(2)  # Small delay between batches to avoid spikes
@@ -747,7 +745,7 @@ async def on_ready():
                 else:
                     logging.error(f"Error syncing commands for batch {batch_num + 1}: {e}")
 
-        logging.info("All guild-specific commands synced in batches.")
+        logging.info("All guild-specific commands cleared and synced in batches.")
 
     except Exception as e:
         logging.error(f"Unexpected error during command syncing: {e}")
