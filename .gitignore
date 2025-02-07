@@ -1,23 +1,26 @@
-# Python
-__pycache__/
+# Ignore Python virtual environment
+venv/
+.env/
 *.pyc
-*.pyo
-*.pyd
+__pycache__/
+
+# Ignore sensitive environment/config files
 .env
+*.env
+config.json
 
-# Discord bot token file
-token.txt
-
-# OS generated files
-.DS_Store
-Thumbs.db
-
-# Log files
+# Ignore logs
 *.log
+logs/
 
-# Other IDE files
-.vscode/
-.idea/
+# Ignore cache files
+.cache/
+.DS_Store
 
-#JSONfiles
-webhooks.json
+# Ignore persistent data files (if needed)
+var/
+*.db
+*.sqlite
+
+# Ignore Render deployment artifacts (if any)
+render.yaml
