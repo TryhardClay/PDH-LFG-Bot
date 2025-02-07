@@ -755,10 +755,6 @@ async def generate_tablestream_link(game_data: dict, game_format: GameFormat, pl
 
 @client.event
 async def on_ready():
-    """
-    Optimized event triggered when the bot is ready. Stagger command syncing to avoid rate limits.
-    Handles rate limits using exponential backoff.
-    """
     logging.info(f"Bot is ready and logged in as {client.user}")
 
     # Initialize aiohttp session
@@ -770,39 +766,31 @@ async def on_ready():
     CHANNEL_FILTERS = load_channel_filters()
     logging.info("Configurations reloaded successfully.")
 
-    batch_size = 10  # Sync commands in batches of 10 guilds
-    delay_between_batches = 2  # Delay between batches
-    retry_delay = 5  # Initial retry delay for rate limits
+    retry_delay = 5  # Initial retry delay (in seconds)
+    max_retries = 5  # Maximum retries per guild sync
 
-    try:
-        sync_tasks = []
-        for i, guild in enumerate(client.guilds):
-            sync_tasks.append(client.tree.sync(guild=guild))
-
-            # Process batches
-            if len(sync_tasks) == batch_size:
-                await execute_batch_with_retries(sync_tasks, retry_delay)
-                sync_tasks = []  # Clear batch
-                await asyncio.sleep(delay_between_batches)  # Delay between batches
-
-        # Sync any remaining tasks
-        if sync_tasks:
-            await execute_batch_with_retries(sync_tasks, retry_delay)
-
-        logging.info("All commands synced successfully.")
-    except Exception as e:
-        logging.error(f"Error syncing commands: {e}")
-
-    # Log connected guilds and check for bans
     for guild in client.guilds:
-        if guild.id in banned_servers:
-            logging.warning(f"Bot is banned from server: {guild.name} (ID: {guild.id}). Leaving...")
-            await guild.leave()
-        else:
-            logging.info(f"Connected to server: {guild.name} (ID: {guild.id})")
+        logging.info(f"Attempting to sync commands for guild: {guild.name} (ID: {guild.id})")
 
-    logging.info("Bot is ready to receive updates and relay messages.")
+        # Sequential sync with retry and backoff
+        for attempt in range(max_retries):
+            try:
+                await client.tree.sync(guild=guild)
+                logging.info(f"Commands synced successfully for {guild.name} (ID: {guild.id})")
+                break  # Exit retry loop on success
+            except discord.HTTPException as e:
+                if e.status == 429:
+                    logging.warning(f"Rate limit hit while syncing {guild.name}. Retrying in {retry_delay} seconds.")
+                    await asyncio.sleep(retry_delay)
+                    retry_delay = min(retry_delay * 2, 60)  # Exponential backoff up to 60 seconds
+                else:
+                    logging.error(f"Failed to sync commands for {guild.name} (ID: {guild.id}): {e}")
+                    break  # Exit on non-rate-limit errors
 
+        # Small delay between each guild sync to avoid spikes
+        await asyncio.sleep(2)
+
+    logging.info("All guild-specific commands synced sequentially.")
 
 async def execute_batch_with_retries(tasks, retry_delay):
     """
