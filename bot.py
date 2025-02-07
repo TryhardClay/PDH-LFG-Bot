@@ -1525,51 +1525,9 @@ async def message_relay_loop():
 # Start the Bot
 # -------------------------------------------------------------------------
 
-async def start_bot():
-    """
-    Asynchronous function to start the bot with rate-limit handling.
-    Ensures aiohttp session cleanup on shutdown and proper session reinitialization on retries.
-    """
-    retry_delay = 5  # Start with 5 seconds delay for retries
-    max_retries = 5  # Retry up to 5 times
-
-    for attempt in range(max_retries):
-        global global_aiohttp_session
-
-        # Ensure any previous session is closed before retrying
-        if global_aiohttp_session is not None and not global_aiohttp_session.closed:
-            logging.info("Closing any previous aiohttp session before retrying...")
-            await global_aiohttp_session.close()
-
-        # Create a fresh aiohttp session for this attempt
-        global_aiohttp_session = aiohttp.ClientSession()
-        logging.info("New aiohttp session initialized.")
-
-        try:
-            logging.info(f"Starting the bot... Attempt {attempt + 1} of {max_retries}")
-            await client.start(TOKEN)
-            return  # Exit on success
-
-        except discord.HTTPException as e:
-            if e.status == 429:  # Rate limit error
-                retry_after = retry_delay * (2 ** attempt)  # Exponential backoff
-                logging.critical(f"Rate limit hit during bot startup. Retrying after {retry_after} seconds.")
-                await asyncio.sleep(retry_after)
-            else:
-                logging.critical(f"Unexpected error during bot startup: {e}")
-                break  # Exit on non-rate-limit errors
-
-        except Exception as e:
-            logging.critical(f"Critical error during bot startup: {e}")
-            break
-
-    # Final cleanup if retries are exhausted
-    logging.info("Max retries exhausted. Cleaning up aiohttp session.")
-    if global_aiohttp_session:
-        await global_aiohttp_session.close()
-
 if __name__ == "__main__":
     try:
-        asyncio.run(start_bot())
+        # client.run() automatically handles cleanup, retries, and session management.
+        client.run(TOKEN)
     except Exception as e:
         logging.critical(f"Unhandled error during bot initialization: {e}")
