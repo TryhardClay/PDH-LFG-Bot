@@ -718,10 +718,16 @@ async def on_ready():
     CHANNEL_FILTERS = load_channel_filters()
     logging.info("Configurations reloaded successfully.")
 
-    batch_size = 3  # Sync 5 servers at a time
+    batch_size = 3  # Sync 3 servers at a time
     retry_delay = 5  # Initial retry delay in seconds
 
     try:
+        # Step 1: Clear all previous commands globally
+        logging.info("Clearing all previous commands globally...")
+        await client.tree.clear_commands(guild=None)  # Clear all commands globally
+        logging.info("All previous commands cleared.")
+
+        # Step 2: Start syncing commands in batches
         guild_batches = [client.guilds[i:i + batch_size] for i in range(0, len(client.guilds), batch_size)]
 
         for batch_num, guild_batch in enumerate(guild_batches):
