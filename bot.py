@@ -718,6 +718,9 @@ async def on_ready():
     CHANNEL_FILTERS = load_channel_filters()
     logging.info("Configurations reloaded successfully.")
 
+    # Check registered global commands via Discord API
+    await check_registered_commands()
+
     batch_size = 3  # Sync 3 servers at a time
     retry_delay = 5  # Initial retry delay in seconds
 
@@ -745,6 +748,27 @@ async def on_ready():
 
     except Exception as e:
         logging.error(f"Unexpected error during command syncing: {e}")
+
+
+async def check_registered_commands():
+    """
+    Debugging function to check which commands are currently registered globally.
+    """
+    url = f"https://discord.com/api/v10/applications/{client.application_id}/commands"
+    headers = {
+        "Authorization": f"Bot {TOKEN}"
+    }
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, headers=headers) as response:
+            if response.status == 200:
+                commands = await response.json()
+                logging.info(f"Global commands registered: {len(commands)}")
+                for command in commands:
+                    logging.info(f"Command Name: {command['name']}, Description: {command['description']}")
+            else:
+                error_message = await response.text()
+                logging.error(f"Failed to fetch commands. Status: {response.status}, Error: {error_message}")
 
 @client.event
 async def on_message(message):
