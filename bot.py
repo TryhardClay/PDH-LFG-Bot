@@ -718,37 +718,37 @@ async def on_ready():
     CHANNEL_FILTERS = load_channel_filters()
     logging.info("Configurations reloaded successfully.")
 
-    # Check registered global commands via Discord API
+    # Step 1: Check currently registered global commands using Discord API
     await check_registered_commands()
 
-    batch_size = 3  # Sync 3 servers at a time
-    retry_delay = 5  # Initial retry delay in seconds
-
     try:
-        guild_batches = [client.guilds[i:i + batch_size] for i in range(0, len(client.guilds), batch_size)]
+        total_commands_synced = 0  # Track total commands successfully synced
 
-        for batch_num, guild_batch in enumerate(guild_batches):
-            logging.info(f"Syncing commands for batch {batch_num + 1}/{len(guild_batches)}")
+        # Sync commands globally first
+        logging.info("Syncing global commands...")
+        global_sync_response = await client.tree.sync()
+        logging.info(f"Global commands synced: {len(global_sync_response)} commands")
+        total_commands_synced += len(global_sync_response)
 
+        # Now sync commands for every guild without delays
+        for guild in client.guilds:
+            logging.info(f"Syncing commands for guild: {guild.name} (ID: {guild.id})")
             try:
-                # Sync commands for the batch
-                await asyncio.gather(*[client.tree.sync(guild=guild) for guild in guild_batch])
-                logging.info(f"Commands synced successfully for batch {batch_num + 1}")
-                await asyncio.sleep(2)  # Small delay between batches to avoid spikes
+                # Sync commands for the current guild
+                synced_commands = await client.tree.sync(guild=guild)
+                logging.info(f"Commands synced for guild {guild.name} (ID: {guild.id}): {len(synced_commands)} commands")
+                total_commands_synced += len(synced_commands)
 
             except discord.HTTPException as e:
                 if e.status == 429:  # Handle rate limits
-                    logging.warning(f"Rate limit hit during batch {batch_num + 1}. Retrying after {retry_delay} seconds.")
-                    await asyncio.sleep(retry_delay)
-                    retry_delay = min(retry_delay * 2, 60)  # Exponential backoff up to 60 seconds
+                    logging.error(f"Rate limit hit while syncing {guild.name}. Sync may fail.")
                 else:
-                    logging.error(f"Error syncing commands for batch {batch_num + 1}: {e}")
+                    logging.error(f"Error syncing commands for guild {guild.name} (ID: {guild.id}): {e}")
 
-        logging.info("All guild-specific commands synced in batches.")
+        logging.info(f"Total commands synced across all guilds and globally: {total_commands_synced}")
 
     except Exception as e:
         logging.error(f"Unexpected error during command syncing: {e}")
-
 
 async def check_registered_commands():
     """
