@@ -718,37 +718,30 @@ async def on_ready():
     CHANNEL_FILTERS = load_channel_filters()
     logging.info("Configurations reloaded successfully.")
 
-    # Step 1: Check currently registered global commands using Discord API
-    await check_registered_commands()
-
     try:
-        total_commands_synced = 0  # Track total commands successfully synced
-
-        # Sync commands globally first
+        # Step 1: Sync global commands
         logging.info("Syncing global commands...")
-        global_sync_response = await client.tree.sync()
-        logging.info(f"Global commands synced: {len(global_sync_response)} commands")
-        total_commands_synced += len(global_sync_response)
+        synced_commands = await client.tree.sync()
+        logging.info(f"Global commands synced successfully: {len(synced_commands)} commands")
 
-        # Now sync commands for every guild without delays
-        for guild in client.guilds:
-            logging.info(f"Syncing commands for guild: {guild.name} (ID: {guild.id})")
-            try:
-                # Sync commands for the current guild
-                synced_commands = await client.tree.sync(guild=guild)
-                logging.info(f"Commands synced for guild {guild.name} (ID: {guild.id}): {len(synced_commands)} commands")
-                total_commands_synced += len(synced_commands)
-
-            except discord.HTTPException as e:
-                if e.status == 429:  # Handle rate limits
-                    logging.error(f"Rate limit hit while syncing {guild.name}. Sync may fail.")
-                else:
-                    logging.error(f"Error syncing commands for guild {guild.name} (ID: {guild.id}): {e}")
-
-        logging.info(f"Total commands synced across all guilds and globally: {total_commands_synced}")
+    except discord.HTTPException as e:
+        if e.status == 429:  # Rate limit handling
+            logging.critical("Rate limit hit during global command syncing! Entering cooldown for 1 hour.")
+            await asyncio.sleep(3600)  # Cooldown for 1 hour
+        else:
+            logging.error(f"Unexpected error during global command syncing: {e}")
 
     except Exception as e:
-        logging.error(f"Unexpected error during command syncing: {e}")
+        logging.error(f"Critical error during on_ready: {e}")
+
+async def initialize_aiohttp_session():
+    """
+    Initialize a global aiohttp session.
+    """
+    global global_aiohttp_session
+    if global_aiohttp_session is None:
+        global_aiohttp_session = aiohttp.ClientSession()
+        logging.info("Global aiohttp session initialized successfully.")
 
 async def check_registered_commands():
     """
