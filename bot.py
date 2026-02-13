@@ -564,6 +564,42 @@ async def on_guild_join(guild):
     else:
         logging.info(f"Joined new server: {guild.name} (ID: {guild.id})")
         logging.info(f"Now connected to {len(client.guilds)} servers")
+        
+        # Send welcome message to the server's system channel
+        try:
+            # Try system channel first (default for server messages)
+            channel = guild.system_channel
+            
+            # If no system channel, try to find a general channel
+            if not channel:
+                for ch in guild.text_channels:
+                    if ch.permissions_for(guild.me).send_messages:
+                        channel = ch
+                        break
+            
+            if channel:
+                embed = discord.Embed(
+                    title="👋 Thanks for adding PDH LFG Bot!",
+                    description=(
+                        "Hello! I'm your Pauper Commander cross-server LFG bot.\n\n"
+                        "**To get started:**\n"
+                        "An admin needs to use the `/setchannel` command to configure a channel for LFG requests.\n\n"
+                        "**Available filters:**\n"
+                        "• `cpdhlfg` - Competitive Pauper Commander\n"
+                        "• `casuallfg` - Casual Pauper Commander\n\n"
+                        "Use `/about` to see all available commands and rules."
+                    ),
+                    color=discord.Color.blue()
+                )
+                embed.set_thumbnail(url=IMAGE_URL)
+                embed.set_footer(text="PDH LFG Bot • Connecting Pauper Commander players worldwide")
+                
+                await send_with_rate_limit(channel, embed=embed)
+                logging.info(f"Sent welcome message to {guild.name}")
+            else:
+                logging.warning(f"Could not find a suitable channel to send welcome message in {guild.name}")
+        except Exception as e:
+            logging.error(f"Failed to send welcome message to {guild.name}: {e}")
 
 @client.event
 async def on_guild_remove(guild):
