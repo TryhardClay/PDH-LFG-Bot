@@ -848,7 +848,7 @@ async def biglfg(interaction: discord.Interaction):
                 "task": asyncio.create_task(lfg_timeout(lfg_uuid))
             }
             await interaction.followup.send(
-                f"LFG request created successfully! Sent to {len(sent_messages)} channel(s).",
+                "LFG request created successfully!",
                 ephemeral=True
             )
         else:
@@ -872,6 +872,8 @@ async def about(interaction: discord.Interaction):
             title="PDH LFG Bot - Information & Commands",
             description=(
                 "This bot helps players find Pauper Commander games across multiple Discord servers.\n\n"
+                "**About Convoke:**\n"
+                "Games are hosted on Convoke, which provides built-in audio and video—no need for Discord voice chat!\n\n"
                 "**Note:** Restricted commands require special permissions."
             ),
             color=discord.Color.blue()
