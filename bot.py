@@ -449,10 +449,18 @@ async def update_embeds(lfg_uuid):
                 if not is_game_ready:
                     embed.set_thumbnail(url=IMAGE_URL)
 
-                # Add the player list
+                # Add the player list with placeholders for empty slots
+                player_list = []
+                player_names = list(players.values())
+                for i in range(4):
+                    if i < len(player_names):
+                        player_list.append(f"{i + 1}. {player_names[i]}")
+                    else:
+                        player_list.append(f"{i + 1}. *[Open]*")
+                
                 embed.add_field(
                     name="Players:",
-                    value="\n".join([f"{i + 1}. {name}" for i, name in enumerate(players.values())]),
+                    value="\n".join(player_list),
                     inline=False
                 )
 
@@ -785,9 +793,17 @@ async def biglfg(interaction: discord.Interaction):
             url="https://github.com/TryhardClay/PDH-LFG-Bot"
         )
         embed.set_thumbnail(url=IMAGE_URL)
+        
+        # Show all 4 player slots with first player filled
+        player_list = [
+            f"1. {interaction.user.name}",
+            "2. *[Open]*",
+            "3. *[Open]*",
+            "4. *[Open]*"
+        ]
         embed.add_field(
             name="Players:",
-            value=f"1. {interaction.user.name}",
+            value="\n".join(player_list),
             inline=False
         )
 
