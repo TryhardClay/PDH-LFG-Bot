@@ -7,6 +7,8 @@ import logging
 import uuid
 import time
 from enum import Enum
+from datetime import datetime
+from collections import deque
 from discord.ext import commands
 from discord.ext.commands import has_permissions
 
@@ -33,6 +35,126 @@ IMAGE_URL = "https://raw.githubusercontent.com/TryhardClay/PDH-LFG-Bot/main/PDHB
 
 # BigLFG Embed Tracking
 active_embeds = {}
+
+# -------------------------------------------------------------------------
+# Rate Limiter Classes
+# -------------------------------------------------------------------------
+
+class GlobalRateLimiter:
+    """
+    Global rate limiter to prevent exceeding Discord's 50 requests/second limit.
+    Uses a token bucket algorithm with a safety margin (40 requests/second).
+    """
+    def __init__(self, max_requests_per_second=40):
+        self.max_requests = max_requests_per_second
+        self.requests = deque()
+        self.lock = asyncio.Lock()
+
+    async def acquire(self):
+        """Wait if necessary to stay within rate limits."""
+        async with self.lock:
+            now = datetime.now()
+            
+            # Remove requests older than 1 second
+            while self.requests and (now - self.requests[0]).total_seconds() > 1.0:
+                self.requests.popleft()
+            
+            # If at capacity, wait until we can proceed
+            if len(self.requests) >= self.max_requests:
+                oldest_request = self.requests[0]
+                wait_time = 1.0 - (now - oldest_request).total_seconds()
+                if wait_time > 0:
+                    logging.info(f"Rate limit: waiting {wait_time:.2f}s")
+                    await asyncio.sleep(wait_time)
+                    # Clear old requests after waiting
+                    now = datetime.now()
+                    while self.requests and (now - self.requests[0]).total_seconds() > 1.0:
+                        self.requests.popleft()
+            
+            # Record this request
+            self.requests.append(datetime.now())
+
+class ChannelRateLimiter:
+    """
+    Per-channel rate limiter to prevent exceeding Discord's 5 requests/second per channel limit.
+    Uses a safety margin (4 requests/second).
+    """
+    def __init__(self, max_requests_per_second=4):
+        self.max_requests = max_requests_per_second
+        self.channels = {}  # channel_id -> deque of timestamps
+        self.lock = asyncio.Lock()
+
+    async def acquire(self, channel_id):
+        """Wait if necessary to stay within per-channel rate limits."""
+        async with self.lock:
+            now = datetime.now()
+            
+            # Initialize channel tracking if needed
+            if channel_id not in self.channels:
+                self.channels[channel_id] = deque()
+            
+            requests = self.channels[channel_id]
+            
+            # Remove requests older than 1 second
+            while requests and (now - requests[0]).total_seconds() > 1.0:
+                requests.popleft()
+            
+            # If at capacity, wait
+            if len(requests) >= self.max_requests:
+                oldest_request = requests[0]
+                wait_time = 1.0 - (now - oldest_request).total_seconds()
+                if wait_time > 0:
+                    logging.info(f"Channel rate limit for {channel_id}: waiting {wait_time:.2f}s")
+                    await asyncio.sleep(wait_time)
+                    # Clear old requests after waiting
+                    now = datetime.now()
+                    while requests and (now - requests[0]).total_seconds() > 1.0:
+                        requests.popleft()
+            
+            # Record this request
+            requests.append(datetime.now())
+
+# Initialize rate limiters
+global_rate_limiter = GlobalRateLimiter(max_requests_per_second=40)
+channel_rate_limiter = ChannelRateLimiter(max_requests_per_second=4)
+
+async def send_with_rate_limit(channel, **kwargs):
+    """
+    Send a message to a channel with rate limiting and exponential backoff.
+    Handles both global and per-channel rate limits.
+    """
+    max_retries = 3
+    base_delay = 1.0
+    
+    for attempt in range(max_retries):
+        try:
+            # Wait for global rate limit
+            await global_rate_limiter.acquire()
+            
+            # Wait for channel-specific rate limit
+            await channel_rate_limiter.acquire(channel.id)
+            
+            # Send the message
+            return await channel.send(**kwargs)
+            
+        except discord.HTTPException as e:
+            if e.status == 429:  # Rate limited
+                retry_after = float(e.response.headers.get('Retry-After', base_delay * (2 ** attempt)))
+                logging.warning(f"Rate limited! Retrying after {retry_after:.2f}s (attempt {attempt + 1}/{max_retries})")
+                await asyncio.sleep(retry_after)
+                
+                if attempt == max_retries - 1:
+                    logging.error(f"Failed to send message after {max_retries} attempts")
+                    return None
+            else:
+                logging.error(f"HTTP error sending message: {e}")
+                return None
+                
+        except Exception as e:
+            logging.error(f"Error sending message to channel {channel.id}: {e}")
+            return None
+    
+    return None
 
 # -------------------------------------------------------------------------
 # Persistent Storage Functions
@@ -161,7 +283,7 @@ async def generate_convoke_link(game_data: dict) -> tuple[str | None, str | None
         headers = {"user-agent": "pdh-lfg-bot/1.0"}
         endpoint = f"{CONVOKE_ROOT}/game/create-game"
 
-        timeout = aiohttp.ClientTimeout(total=5)
+        timeout = aiohttp.ClientTimeout(total=10)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(endpoint, json=payload, headers=headers) as response:
                 if response.status == 200 or response.status == 201:
@@ -312,7 +434,7 @@ async def update_embeds(lfg_uuid):
                 logging.error("Failed to generate Convoke link.")
                 data["game_link"] = "Error generating game link"
 
-        # Update all embeds
+        # Update all embeds with rate limiting
         for channel_id, message in data["messages"].items():
             try:
                 embed = discord.Embed(
@@ -344,6 +466,10 @@ async def update_embeds(lfg_uuid):
 
                     # Remove buttons when game is ready
                     view = discord.ui.View()
+                    
+                    # Use rate-limited edit
+                    await global_rate_limiter.acquire()
+                    await channel_rate_limiter.acquire(message.channel.id)
                     await message.edit(embed=embed, view=view)
 
                     # Cancel the timeout task
@@ -371,6 +497,8 @@ async def update_embeds(lfg_uuid):
                         data["dm_sent"] = True
                 else:
                     # Update embed with current players (game not ready yet)
+                    await global_rate_limiter.acquire()
+                    await channel_rate_limiter.acquire(message.channel.id)
                     await message.edit(embed=embed, view=create_lfg_view())
 
             except Exception as e:
@@ -395,6 +523,9 @@ async def lfg_timeout(lfg_uuid):
                         name="PDH LFG Bot",
                         icon_url=IMAGE_URL
                     )
+                    # Use rate-limited edit
+                    await global_rate_limiter.acquire()
+                    await channel_rate_limiter.acquire(message.channel.id)
                     await message.edit(embed=embed, view=None)
                 except Exception as e:
                     logging.error(f"Error updating embed on timeout for LFG UUID {lfg_uuid}: {e}")
@@ -409,6 +540,7 @@ async def lfg_timeout(lfg_uuid):
 async def on_ready():
     """Event triggered when the bot is ready."""
     logging.info(f"Bot is ready and logged in as {client.user}")
+    logging.info(f"Connected to {len(client.guilds)} servers")
 
     # Reload configurations
     global CHANNEL_FILTERS
@@ -431,15 +563,17 @@ async def on_guild_join(guild):
         await guild.leave()
     else:
         logging.info(f"Joined new server: {guild.name} (ID: {guild.id})")
+        logging.info(f"Now connected to {len(client.guilds)} servers")
 
 @client.event
 async def on_guild_remove(guild):
     """Event triggered when the bot is removed from a server."""
     logging.info(f"Bot removed from server: {guild.name} (ID: {guild.id})")
+    logging.info(f"Now connected to {len(client.guilds)} servers")
 
 @client.event
 async def on_message(message):
-    """Prevent non-slash commands in LFG channels."""
+    """Prevent non-slash commands in LFG channels and block banned users."""
     if message.author == client.user or message.webhook_id:
         return
 
@@ -540,15 +674,26 @@ async def listconnections(interaction: discord.Interaction):
     """Display all LFG-enabled channels and their filters."""
     try:
         if CHANNEL_FILTERS:
-            connections = "\n".join(
-                [f"- <#{channel.split('_')[1]}> in {client.get_guild(int(channel.split('_')[0])).name} "
-                 f"(filter: {filter_type})"
-                 for channel, filter_type in CHANNEL_FILTERS.items()]
-            )
-            await interaction.response.send_message(
-                f"LFG-enabled channels:\n{connections}",
-                ephemeral=True
-            )
+            connections = []
+            for channel, filter_type in CHANNEL_FILTERS.items():
+                try:
+                    guild_id, chan_id = channel.split('_')
+                    guild = client.get_guild(int(guild_id))
+                    if guild:
+                        connections.append(f"- <#{chan_id}> in {guild.name} (filter: {filter_type})")
+                except Exception as e:
+                    logging.error(f"Error processing channel {channel}: {e}")
+            
+            if connections:
+                await interaction.response.send_message(
+                    f"LFG-enabled channels:\n" + "\n".join(connections),
+                    ephemeral=True
+                )
+            else:
+                await interaction.response.send_message(
+                    "No accessible LFG-enabled channels found.",
+                    ephemeral=True
+                )
         else:
             await interaction.response.send_message(
                 "No LFG-enabled channels configured.",
@@ -610,22 +755,36 @@ async def biglfg(interaction: discord.Interaction):
             inline=False
         )
 
-        # Send embed to all matching LFG channels
+        # Send embed to all matching LFG channels with rate limiting
         sent_messages = {}
+        channels_to_send = []
+        
+        # Collect all matching channels first
         for channel_id, filter_type in CHANNEL_FILTERS.items():
             if filter_type == source_filter:
                 try:
                     guild_id, chan_id = channel_id.split('_')
                     destination_channel = client.get_channel(int(chan_id))
                     if destination_channel:
-                        sent_message = await destination_channel.send(
-                            embed=embed,
-                            view=create_lfg_view()
-                        )
-                        sent_messages[channel_id] = sent_message
-                        await asyncio.sleep(0.5)  # Rate limit prevention
+                        channels_to_send.append((channel_id, destination_channel))
                 except Exception as e:
-                    logging.error(f"Error sending to channel {channel_id}: {e}")
+                    logging.error(f"Error processing channel {channel_id}: {e}")
+        
+        logging.info(f"Sending BigLFG to {len(channels_to_send)} channels")
+        
+        # Send to all channels with rate limiting
+        for channel_id, destination_channel in channels_to_send:
+            try:
+                sent_message = await send_with_rate_limit(
+                    destination_channel,
+                    embed=embed,
+                    view=create_lfg_view()
+                )
+                if sent_message:
+                    sent_messages[channel_id] = sent_message
+                    logging.info(f"Sent BigLFG to {destination_channel.name} in {destination_channel.guild.name}")
+            except Exception as e:
+                logging.error(f"Error sending to channel {channel_id}: {e}")
 
         if sent_messages:
             # Store the LFG data
@@ -637,12 +796,12 @@ async def biglfg(interaction: discord.Interaction):
                 "task": asyncio.create_task(lfg_timeout(lfg_uuid))
             }
             await interaction.followup.send(
-                "LFG request created successfully!",
+                f"LFG request created successfully! Sent to {len(sent_messages)} channel(s).",
                 ephemeral=True
             )
         else:
             await interaction.followup.send(
-                "Failed to create LFG request. No matching channels found.",
+                "Failed to create LFG request. No matching channels found or all sends failed.",
                 ephemeral=True
             )
 
