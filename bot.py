@@ -19,7 +19,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 # Access the token from the environment variable
 TOKEN = os.environ.get('TOKEN')
-CONVOKE_API_KEY = "convk_6536e0adb4c407d49bfa7d4ee4d44c489dc147a6"
+CONVOKE_API_KEY = os.environ.get('CONVOKE_API_KEY')
 CONVOKE_ROOT = "https://api.convoke.gg"
 
 # Persistent storage paths
